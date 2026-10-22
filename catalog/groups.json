@@ -1,0 +1,16 @@
+{
+  "groups": {
+    "creator": {
+      "pitch": "The six free editors for photos, video, sound and design work.",
+      "apps": ["photocraft", "vectorcraft", "filmcraft", "lightcraft", "effectcraft", "soundcraft"]
+    },
+    "office": {
+      "pitch": "The seven free editors for documents, spreadsheets, slides, layouts and design files.",
+      "apps": ["pdfcraft", "wordcraft", "gridcraft", "deckcraft", "designcraft", "figcraft", "cadcraft"]
+    },
+    "all": {
+      "pitch": "Everything: all 13 apps.",
+      "apps": ["photocraft", "vectorcraft", "filmcraft", "lightcraft", "effectcraft", "soundcraft", "pdfcraft", "wordcraft", "gridcraft", "deckcraft", "designcraft", "figcraft", "cadcraft"]
+    }
+  }
+}

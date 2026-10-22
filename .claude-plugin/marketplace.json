@@ -1,0 +1,27 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "craft-studio-setup",
+  "description": "Marketplace for the Craft Studio setup plugin: checksum-verified install of 13 free creative and office apps with MCP registration.",
+  "owner": {
+    "name": "Qualixar",
+    "url": "https://github.com/qualixar"
+  },
+  "plugins": [
+    {
+      "name": "craft-studio",
+      "description": "Set up 13 free Craft Studio creative and office apps with checksum-verified install and MCP registration, guided step by step.",
+      "version": "0.1.0",
+      "source": "./",
+      "category": "productivity",
+      "homepage": "https://github.com/qualixar/craft-studio-setup",
+      "author": {
+        "name": "Qualixar",
+        "url": "https://github.com/qualixar"
+      },
+      "license": "MIT",
+      "keywords": ["craft-studio", "setup", "photo", "video", "audio", "office", "mcp"],
+      "skills": "./skills/",
+      "commands": "./commands/"
+    }
+  ]
+}
