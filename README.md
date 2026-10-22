@@ -1,5 +1,14 @@
 # Claude Code × Craft Studio: set up 13 free creative and office apps in one conversation
 
+<p align="center">
+  <a href="media/claude-code-craft-studio.mp4"><img src="media/claude-code-craft-studio.gif" alt="Claude Code driving six free ArtCraft apps — motion graphics from the video" width="720"/></a>
+</p>
+
+<p align="center">
+  ▶ <a href="media/claude-code-craft-studio.mp4">Watch 30 s with sound (MP4)</a> ·
+  📘 <a href="https://qualixar.com/learn/guides/claude-code-6-free-adobe-alternatives">Free 16-page guide on qualixar.com</a>
+</p>
+
 For people who work with photos, sound, video, or documents every day and have
 never opened a terminal. You end up with free apps that stand in for Photoshop,
 Lightroom, Illustrator, After Effects, Premiere, a music studio, Acrobat,
