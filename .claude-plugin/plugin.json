@@ -1,7 +1,7 @@
 {
   "name": "craft-studio",
   "description": "Set up 13 free Craft Studio creative and office apps (Photoshop-to-CAD replacements) with checksum-verified install and MCP registration, guided step by step.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": {
     "name": "Qualixar",
     "url": "https://github.com/qualixar"

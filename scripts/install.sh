@@ -22,7 +22,7 @@ BIN_DIR="${CRAFT_BIN_DIR:-$HOME/.local/bin}"
 WORKSPACE="${CRAFT_WORKSPACE:-$HOME/craft-workspace}"
 GROUP="${CRAFT_GROUP:-all}"
 ONLY=""; YES="${CRAFT_YES:-0}"; SKIP_MCP="${CRAFT_SKIP_MCP:-0}"
-MCP_ONLY=0; DETECT_ONLY=0; REINSTALL=0; REPORT_DIR=""
+MCP_ONLY=0; DETECT_ONLY=0; REINSTALL=0; REPORT_DIR=""; MCP_FAILED=""
 
 usage() {
   sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"
@@ -207,8 +207,18 @@ if [ "$SKIP_MCP" = 0 ]; then
     echo "== claude mcp add --scope user $mcp_name"
     claude mcp add --scope user "$mcp_name" -- "$bin" "${margs[@]}"
   done <<< "$WANTED_LIST"
+  # Health check: a server that registers but cannot start is a silent failure for the user, so name it.
   echo "--- claude mcp list ---"
-  claude mcp list
+  MCP_STATUS="$(claude mcp list 2>&1 || true)"; echo "$MCP_STATUS"
+  while IFS= read -r app; do
+    [ -z "$app" ] && continue
+    mcp_name="$(field "$app" mcp_name)"
+    [ -x "$BIN_DIR/$(field "$app" binary)" ] || continue
+    if echo "$MCP_STATUS" | grep -Eq "^${mcp_name}:.*(Failed|✘)"; then MCP_FAILED="$MCP_FAILED $mcp_name"; fi
+  done <<< "$WANTED_LIST"
+  if [ -n "$MCP_FAILED" ]; then
+    echo "MCP NOT CONNECTED:$MCP_FAILED (installed, but Claude Code cannot start it; re-run with --mcp-only, then report it)" >&2
+  fi
 fi
 
 # --- report ------------------------------------------------------------------
@@ -222,8 +232,10 @@ if [ -n "$REPORT_DIR" ] || [ "$MCP_ONLY" = 0 ]; then
       [ -z "$app" ] && continue
       echo "- $app $(field "$app" version) sha256:$(field "$app" sha256) installed:$([ -x "$BIN_DIR/$(field "$app" binary)" ] && echo yes || echo no)"
     done <<< "$WANTED_LIST"
+    [ -n "$MCP_FAILED" ] && echo && echo "MCP not connected:$MCP_FAILED"
   } > "$OUT_DIR/setup-report.md"
   echo "wrote $OUT_DIR/setup-report.md"
 fi
 
+[ -n "$MCP_FAILED" ] && { echo "DONE, with MCP problems:$MCP_FAILED"; exit 2; }
 echo "DONE."

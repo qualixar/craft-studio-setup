@@ -66,8 +66,8 @@
       "pin_obtained": "computed 2026-10-22 from ~/tools/craft/zips/lightcraft-cli-0.11.0-macos-universal.zip (tested build on this machine)",
       "binary": "lightcraft-cli",
       "mcp_name": "lightcraft",
-      "mcp_args": ["mcp", "--compact", "{{WORKSPACE}}"],
-      "mcp_args_tested": ["mcp", "--compact", "<proofs>/workspace"],
+      "mcp_args": ["mcp", "--compact", "--library", "{{WORKSPACE}}/lightcraft-library"],
+      "mcp_args_tested": ["mcp", "--compact", "--library", "<clean-env>/ws/lightcraft-library"],
       "group": "creator"
     },
     {

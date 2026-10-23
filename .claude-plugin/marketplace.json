@@ -10,7 +10,7 @@
     {
       "name": "craft-studio",
       "description": "Set up 13 free Craft Studio creative and office apps with checksum-verified install and MCP registration, guided step by step.",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "source": "./",
       "category": "productivity",
       "homepage": "https://github.com/qualixar/craft-studio-setup",

@@ -113,6 +113,14 @@ else
 fi
 grep -q "already installed" /tmp/t3.log && ok "second run skipped installed apps" || bad "no idempotent skip"
 
+# --- test 4: a registered server that cannot start is reported ---------------
+echo "--- test 4: MCP health check names a server that fails to connect ---"
+echo "fake2: $CRAFT_BIN_DIR/fake2-cli mcp - ✘ Failed to connect" > "$FIX2/mcp.db.fail"
+sed -i '' "s|\"mcp list\") cat \"\\\$DB\";;|\"mcp list\") cat \"\\\$DB\"; cat \"$FIX2/mcp.db.fail\";;|" "$FIX2/stubbin/claude"
+bash "$INSTALL" --group creator --yes --mcp-only >/tmp/t4.log 2>&1; rc=$?
+[ "$rc" = 2 ] && ok "installer exits 2 when a server fails to connect" || bad "exit was $rc, expected 2"
+grep -q "MCP NOT CONNECTED: fake2" /tmp/t4.log && ok "failing server named" || bad "failing server not named"
+
 rm -rf "$FIX1" "$FIX2"
 echo "=== $PASS passed, $FAIL failed ==="
 [ "$FAIL" = 0 ]
