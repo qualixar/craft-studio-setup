@@ -1,54 +1,65 @@
-# SECURITY.md — what the scripts touch, and what we did NOT verify
+# Security and installer scope
 
-## What our scripts touch
+## Files and configuration
 
-- `scripts/install.sh` (the only installer) touches exactly four things:
-  1. `$CRAFT_HOME` (default `~/tools/craft`): one folder per app with the unzipped CLI.
-  2. `$CRAFT_BIN_DIR` (default `~/.local/bin`): one symlink per app CLI.
-  3. The workspace folder (default `~/craft-workspace`, created): the folder the apps may read/write, plus `setup-report.md`.
-  4. `claude mcp add --scope user` entries: one MCP server per app, removable with `claude mcp remove --scope user <name>`.
-- No `sudo`, ever. No credentials asked for or stored. No keychain, no shell-profile edits (if `~/.local/bin` is not on PATH, the script tells you the export line; it does not add it). Downloads are https-only (`curl --proto '=https'`); the `CRAFT_CURL_PROTO` override exists only for the localhost test fixtures.
-- To uninstall: delete `~/tools/craft/<app>`, remove the `~/.local/bin/<app>-cli` symlink, and run `claude mcp remove --scope user <name>` per app.
+`scripts/install.sh` uses:
 
-## What "nothing phones home" means here
+- `$CRAFT_HOME` (default `~/tools/craft`): extracted CLI folders and verified download cache.
+- `$CRAFT_BIN_DIR` (default `~/.local/bin`): one symlink per CLI.
+- The workspace (default `~/craft-workspace`): created for the apps and `setup-report.md`.
+- `claude mcp add --scope user`: one server per selected app, unless `--skip-mcp` is set.
+- With `--desktop` only: temporary read-only DMG mounts and `.app` copies in `/Applications`, or the directory supplied with `--desktop-dir`. Existing apps with the same name are replaced. Quit them before updating.
 
-It means **our scripts** (install.sh, the tests) make no network requests
-except downloading the release zips from `github.com/storytold/<app>`. It does
-**not** mean the Craft apps themselves are silent: **we never packet-captured
-the 13 Craft CLIs**, so we make no claim about what network traffic the apps
-generate at runtime. That check is explicitly untested — see below.
+There is no `sudo`, credential storage, keychain access or shell-profile edit.
+Downloads and redirects use HTTPS. `CRAFT_CURL_PROTO` is a developer override;
+the offline tests replace curl entirely and do not use a network server.
 
-## Checksums: ours, and why
+`--verify-mcp` sends initialize and tools/list directly to installed CLIs. It
+creates the workspace if needed and stops the processes afterwards. It does
+not register servers or write Claude configuration. Runtime filesystem access
+still depends on each app's supported launch flags. FilmCraft, GridCraft and
+CADCraft currently have no folder restriction flags in this catalog.
 
-- Every pin in `catalog/apps.json` is **our own SHA-256**, computed 2026-10-22
-  on the M5 from the zips in `~/tools/craft/zips/` that were smoke-tested here
-  (see each entry's `pin_obtained`). Craft releases ship no verified checksum
-  file, so our pins are the trust anchor.
-- `install.sh` fails closed: expected vs actual mismatch → the bad download is
-  deleted and the whole run aborts (exit 1). Verified by `tests/test_install.sh`
-  (test 1).
-- Repinning for a new version = update `version`/`tag`/`asset`/`asset_url`/
-  `sha256`/`pin_obtained` in `catalog/apps.json` from a tested machine. Never
-  copy a hash from a release page or chat without hashing the tested bytes.
+To uninstall a CLI, remove its `~/tools/craft/<app>` directory and
+`~/.local/bin/<app>-cli` symlink, then run
+`claude mcp remove --scope user <name>`. Desktop apps can be removed separately
+from the Applications directory you chose. This does not delete your documents.
 
-## Signing
+## Checksums
 
-All 13 CLIs are signed by Developer ID Application: Learning Machines LLC and
-`spctl --assess --type install` reports `accepted, source=Notarized Developer
-ID`. Raw outputs: [SIGNING.md](SIGNING.md). Note: bare `spctl -a` (app-type
-assessment) says "rejected (the code is valid but does not seem to be an app)"
-— expected for CLI tools; the install-type assessment is the correct one.
+The v0.2.0 catalog pins hashes from each 31 October 2026 release's
+`SHA256SUMS.txt`. Every entry links its checksum source. All 13 CLI ZIPs were
+also downloaded and hashed independently; every hash matched. Desktop DMG
+pins come from the same upstream checksum files; SoundCraft's DMG was also
+downloaded, hashed and installed into a temporary target for verification.
 
-## Explicitly NOT tested
+A mismatch removes the bad download and aborts the run with exit 1 before
+extracting or mounting it. Earlier successful app installs remain. The tests
+exercise CLI and DMG mismatches without real network access.
 
-- Packet capture / egress audit of any Craft CLI or MCP server.
-- Windows (`winget` names, asset names) — marked not yet tested; `install.sh` refuses non-macOS.
-- Supply-chain review of the Craft app sources beyond building/running the pinned zips.
-- The `claude mcp add --scope user` flag surface across Claude Code versions (tested with the CLI on this machine, 2026-10-22).
+For a new release, update the version, tag, asset names, URLs, SHA-256 values
+and provenance in the catalog, including the desktop entry when available.
+Download and independently hash the CLI bytes before accepting the new pins.
+A matching checksum establishes equality with the pinned bytes; it does not
+replace a source or supply-chain audit.
+
+## Signing and limits of testing
+
+All 13 pinned CLIs passed `codesign --verify --strict` on 31 October 2026.
+[SIGNING.md](SIGNING.md) preserves the older 22 October notarization checks
+and distinguishes them from the current signature verification. A fresh
+`spctl` notarization assessment was not performed for v0.2.0.
+
+The installer downloads from the upstream GitHub releases. We have not
+packet-captured the apps or audited their runtime network traffic. The tests
+use temporary homes, fake downloads, fake DMGs and a fake Claude command.
+Windows is untested here and the installer refuses non-macOS systems. The
+current real install and MCP checks ran on macOS 26.6.2, Apple Silicon; the
+Intel slice of the universal binaries was not executed. Real user-scope Claude
+registration was not changed during the v0.2.0 checks.
 
 ## Report a problem
 
-Checksum mismatch, unexpected prompt, or anything the installer did that this
-file says it should not: open an issue at
-`github.com/qualixar/craft-studio-setup` with `setup-report.md` attached (it
-contains versions and fingerprints, no secrets).
+Open an issue at [qualixar/craft-studio-setup](https://github.com/qualixar/craft-studio-setup/issues).
+Include the failing app, installer output and version/fingerprint lines from
+`setup-report.md`. Review local paths before sharing the report.

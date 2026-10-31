@@ -1,4 +1,18 @@
-# SIGNING.md — raw macOS signature checks, 2026-10-22 (M5, read-only commands)
+# macOS signature checks
+
+## 31 October 2026: v0.2.0 CLI signatures
+
+All 13 CLI binaries pinned in `catalog/apps.json` passed
+`codesign --verify --strict` (exit 0) after extraction from the independently
+hashed release archives. Checks ran outside the restricted test sandbox on
+macOS 26.6.2, arm64. No fresh `spctl` notarization assessment was run for these
+versions. See [RELEASE-NOTES-v0.2.0.md](RELEASE-NOTES-v0.2.0.md) for versions.
+
+## 22 October 2026: historical notarization evidence
+
+The output below applies to the older versions named in each section. It is
+retained as historical evidence and does not establish notarization status for
+the new catalog pins.
 
 Commands (nothing was modified):
 
