@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: A bug inside one of the apps (PhotoCraft, WordCraft, GridCraft, ...)
+    url: https://github.com/storytold
+    about: The apps are made by Storytold. Report app bugs in that app's own repository.
+  - name: Security problem in this installer
+    url: https://github.com/qualixar/craft-studio-setup/security/advisories/new
+    about: Report privately. Do not open a public issue for security problems.

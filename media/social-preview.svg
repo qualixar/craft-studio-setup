@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640">
+  <title>Craft Studio Setup by Qualixar</title>
+  <rect width="1280" height="640" fill="#f3ead8"/>
+  <rect x="0" y="600" width="1280" height="40" fill="#141413"/>
+  <rect x="0" y="592" width="1280" height="8" fill="#d97757"/>
+  <g transform="translate(40 100) scale(0.82)">
+  
+  <path d="M88 246 C88 321 256 262 256 318" fill="none" stroke="#141413" stroke-width="5" stroke-linecap="round"/>
+  <path d="M144 186 C144 261 256 262 256 318" fill="none" stroke="#141413" stroke-width="5" stroke-linecap="round"/>
+  <path d="M200 150 C200 225 256 262 256 318" fill="none" stroke="#141413" stroke-width="5" stroke-linecap="round"/>
+  <path d="M256 138 C256 213 256 262 256 318" fill="none" stroke="#141413" stroke-width="5" stroke-linecap="round"/>
+  <path d="M312 150 C312 225 256 262 256 318" fill="none" stroke="#141413" stroke-width="5" stroke-linecap="round"/>
+  <path d="M368 186 C368 261 256 262 256 318" fill="none" stroke="#141413" stroke-width="5" stroke-linecap="round"/>
+  <path d="M424 246 C424 321 256 262 256 318" fill="none" stroke="#141413" stroke-width="5" stroke-linecap="round"/>
+  <rect x="68" y="206" width="40" height="40" rx="9" fill="#141413"/>
+  <rect x="80" y="218" width="16" height="16" rx="3" fill="#f3ead8" opacity="0.9"/>
+  <rect x="124" y="146" width="40" height="40" rx="9" fill="#3B3FB6"/>
+  <rect x="136" y="158" width="16" height="16" rx="3" fill="#f3ead8" opacity="0.9"/>
+  <rect x="180" y="110" width="40" height="40" rx="9" fill="#141413"/>
+  <rect x="192" y="122" width="16" height="16" rx="3" fill="#f3ead8" opacity="0.9"/>
+  <rect x="236" y="98" width="40" height="40" rx="9" fill="#d97757"/>
+  <rect x="248" y="110" width="16" height="16" rx="3" fill="#f3ead8" opacity="0.9"/>
+  <rect x="292" y="110" width="40" height="40" rx="9" fill="#141413"/>
+  <rect x="304" y="122" width="16" height="16" rx="3" fill="#f3ead8" opacity="0.9"/>
+  <rect x="348" y="146" width="40" height="40" rx="9" fill="#3B3FB6"/>
+  <rect x="360" y="158" width="16" height="16" rx="3" fill="#f3ead8" opacity="0.9"/>
+  <rect x="404" y="206" width="40" height="40" rx="9" fill="#141413"/>
+  <rect x="416" y="218" width="16" height="16" rx="3" fill="#f3ead8" opacity="0.9"/>
+  <rect x="192" y="312" width="128" height="78" rx="18" fill="#d97757"/>
+  <rect x="214" y="334" width="84" height="8" rx="4" fill="#f3ead8" opacity="0.85"/>
+  <rect x="226" y="390" width="16" height="44" rx="5" fill="#141413"/>
+  <rect x="270" y="390" width="16" height="44" rx="5" fill="#141413"/>
+  </g>
+  <g font-family="-apple-system, 'SF Pro Display', 'Helvetica Neue', Helvetica, Arial, sans-serif" fill="#141413">
+    <text x="500" y="228" font-size="76" font-weight="700" letter-spacing="-1.5">Craft Studio Setup</text>
+    <text x="502" y="300" font-size="29" fill="#3B3FB6" font-weight="600">Free office and creative apps for your Mac,</text>
+    <text x="502" y="342" font-size="29" fill="#3B3FB6" font-weight="600">connected to Claude Code and Claude Desktop.</text>
+    <text x="502" y="420" font-size="25">One command  ·  checksum-verified  ·  undo with one command</text>
+    <text x="502" y="512" font-size="24" font-weight="600" fill="#d97757">by Qualixar</text>
+    <text x="502" y="548" font-size="17" opacity="0.75">Apps made by Storytold (github.com/storytold). This repo installs and connects them.</text>
+  </g>
+  <text x="1210" y="627" font-family="-apple-system, Helvetica, Arial, sans-serif" font-size="17" fill="#f3ead8" text-anchor="end">github.com/qualixar/craft-studio-setup</text>
+</svg>

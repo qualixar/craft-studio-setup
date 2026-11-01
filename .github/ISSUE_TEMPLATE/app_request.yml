@@ -1,0 +1,33 @@
+name: App request
+description: Ask for another Storytold app, or a newer pinned version, to be added to the catalog.
+labels: [catalog]
+body:
+  - type: input
+    id: repo
+    attributes:
+      label: Upstream repository
+      placeholder: https://github.com/storytold/<app>
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Release tag you want pinned
+      placeholder: v0.20.0
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: What would you use it for?
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: The release publishes a macOS CLI ZIP and a SHA256SUMS.txt file.
+          required: true
+        - label: The CLI has an `mcp` subcommand.
+          required: false

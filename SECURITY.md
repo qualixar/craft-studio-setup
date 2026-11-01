@@ -1,65 +1,73 @@
-# Security and installer scope
+# Security
 
-## Files and configuration
+## Reporting a problem
 
-`scripts/install.sh` uses:
+Please report security problems privately through
+[GitHub security advisories](https://github.com/qualixar/craft-studio-setup/security/advisories/new),
+or by email to the maintainer listed in `.github/CODEOWNERS`. Do not open a
+public issue for a security problem. Problems inside an app itself belong
+with its maker, [Storytold](https://github.com/storytold).
 
-- `$CRAFT_HOME` (default `~/tools/craft`): extracted CLI folders and verified download cache.
-- `$CRAFT_BIN_DIR` (default `~/.local/bin`): one symlink per CLI.
-- The workspace (default `~/craft-workspace`): created for the apps and `setup-report.md`.
-- `claude mcp add --scope user`: one server per selected app, unless `--skip-mcp` is set.
-- With `--desktop` only: temporary read-only DMG mounts and `.app` copies in `/Applications`, or the directory supplied with `--desktop-dir`. Existing apps with the same name are replaced. Quit them before updating.
+## What the installer trusts
 
-There is no `sudo`, credential storage, keychain access or shell-profile edit.
-Downloads and redirects use HTTPS. `CRAFT_CURL_PROTO` is a developer override;
-the offline tests replace curl entirely and do not use a network server.
+1. **The bootstrapper (`install.sh`)** is fetched from the release tag on
+   `raw.githubusercontent.com` over HTTPS. Its own SHA-256 is printed in the
+   README and the release notes, so you can download it, check it and read it
+   before running it.
+2. **The scripts and catalog it runs.** The bootstrapper downloads the tagged
+   source tarball from `codeload.github.com` over HTTPS and checks the SHA-256
+   of each file it will execute or read (`scripts/*.sh`, `scripts/*.py`,
+   `catalog/*.json`) against a list embedded in itself. One mismatch stops the
+   run before anything is installed. GitHub generates the tarball on request,
+   so this per-file check does not depend on the tarball's own bytes. If the
+   release notes publish a tarball SHA-256, set `CRAFT_SETUP_TARBALL_SHA256`
+   to check that as well.
+3. **The apps.** Each CLI ZIP and desktop DMG is downloaded from the app's
+   GitHub release over HTTPS (redirects must stay on HTTPS) and checked against
+   the SHA-256 pinned in `catalog/apps.json`. The pins come from each release's
+   `SHA256SUMS.txt`, and the CLI archives were also downloaded and hashed
+   independently. A mismatch deletes the download and stops the run (exit 1)
+   before anything is extracted or mounted.
 
-`--verify-mcp` sends initialize and tools/list directly to installed CLIs. It
-creates the workspace if needed and stops the processes afterwards. It does
-not register servers or write Claude configuration. Runtime filesystem access
-still depends on each app's supported launch flags. FilmCraft, GridCraft and
-CADCraft currently have no folder restriction flags in this catalog.
+A matching checksum proves the bytes are the ones that were pinned. It is not
+a source or supply-chain audit of the apps.
 
-To uninstall a CLI, remove its `~/tools/craft/<app>` directory and
-`~/.local/bin/<app>-cli` symlink, then run
-`claude mcp remove --scope user <name>`. Desktop apps can be removed separately
-from the Applications directory you chose. This does not delete your documents.
+## What it does not do
 
-## Checksums
+No `sudo`, no `eval` of downloaded text, no keychain access, no credentials,
+no shell-profile edits, no telemetry. Every variable is quoted and every
+script runs under `set -euo pipefail`. Changes are listed by `--dry-run` and
+the one-line installer asks once before making them unless you pass `--yes`.
 
-The v0.2.0 catalog pins hashes from each 31 October 2026 release's
-`SHA256SUMS.txt`. Every entry links its checksum source. All 13 CLI ZIPs were
-also downloaded and hashed independently; every hash matched. Desktop DMG
-pins come from the same upstream checksum files; SoundCraft's DMG was also
-downloaded, hashed and installed into a temporary target for verification.
+## Files and configuration it changes
 
-A mismatch removes the bad download and aborts the run with exit 1 before
-extracting or mounting it. Earlier successful app installs remain. The tests
-exercise CLI and DMG mismatches without real network access.
+| Path | What | Removed by uninstall |
+| --- | --- | --- |
+| `~/tools/craft/<app>/` | extracted CLI | yes |
+| `~/tools/craft/.cache-zips/` | verified downloads | yes |
+| `~/tools/craft/.craft-setup-state.json` | record of what was added | yes |
+| `~/.local/bin/<app>-cli` | symlink to the CLI | yes (only links into `~/tools/craft`) |
+| `~/craft-workspace/` | folder the apps may use, plus `setup-report.md` | no, your files stay |
+| `~/.claude.json` (via `claude mcp add --scope user`) | one server per app | yes, only entries this installer added |
+| `~/craft-workspace/.mcp.json` | only when the `claude` CLI is missing | yes |
+| `~/Library/Application Support/Claude/claude_desktop_config.json` | one server per app, timestamped backup next to it | yes, only entries this installer added |
+| `/Applications/<App>.app` | only with `--desktop` | yes, only apps it recorded |
 
-For a new release, update the version, tag, asset names, URLs, SHA-256 values
-and provenance in the catalog, including the desktop entry when available.
-Download and independently hash the CLI bytes before accepting the new pins.
-A matching checksum establishes equality with the pinned bytes; it does not
-replace a source or supply-chain audit.
+Flags `--craft-home`, `--bin-dir`, `--workspace` and `--desktop-dir` move
+these paths; pass the same flags to the uninstaller.
 
-## Signing and limits of testing
+Config edits (`scripts/mcp_config.py`): invalid JSON is refused untouched; a
+byte-for-byte backup is written before the first change; only `mcpServers`
+entries are added, and only ones whose names are free or were written by this
+installer; the new file is written to a temporary file, synced and renamed
+into place, then read back. If the read-back shows any other key or server
+changed, the previous file is put back and the run stops.
 
-All 13 pinned CLIs passed `codesign --verify --strict` on 31 October 2026.
-[SIGNING.md](SIGNING.md) preserves the older 22 October notarization checks
-and distinguishes them from the current signature verification. A fresh
-`spctl` notarization assessment was not performed for v0.2.0.
+## Limits of testing
 
-The installer downloads from the upstream GitHub releases. We have not
-packet-captured the apps or audited their runtime network traffic. The tests
-use temporary homes, fake downloads, fake DMGs and a fake Claude command.
-Windows is untested here and the installer refuses non-macOS systems. The
-current real install and MCP checks ran on macOS 26.6.2, Apple Silicon; the
-Intel slice of the universal binaries was not executed. Real user-scope Claude
-registration was not changed during the v0.2.0 checks.
-
-## Report a problem
-
-Open an issue at [qualixar/craft-studio-setup](https://github.com/qualixar/craft-studio-setup/issues).
-Include the failing app, installer output and version/fingerprint lines from
-`setup-report.md`. Review local paths before sharing the report.
+Signing: all 13 pinned CLIs passed `codesign --verify --strict` on 31 October
+2026 ([SIGNING.md](SIGNING.md)). A fresh `spctl` notarization assessment was
+not run for these versions. The apps' runtime network traffic has not been
+audited. Folder access varies by app: FilmCraft, GridCraft and CADCraft have
+no folder restriction flags in this catalog, so the workspace is not a
+universal sandbox. Use a scratch project with them.

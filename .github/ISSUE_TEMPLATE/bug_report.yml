@@ -1,0 +1,55 @@
+name: Installer bug
+description: The installer, uninstaller or MCP connection did not work as described.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Problems inside an app itself belong in that app's repository at github.com/storytold.
+        Before posting, remove anything private (your user name in paths is fine to keep or replace with `~`).
+  - type: input
+    id: command
+    attributes:
+      label: Command you ran
+      placeholder: curl -fsSL https://raw.githubusercontent.com/qualixar/craft-studio-setup/v0.3.0/install.sh | bash -s -- microsoft
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Full output
+      description: Paste everything the command printed. Re-running with --dry-run is a safe way to capture the plan.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version and chip
+      description: Apple menu > About This Mac, or run `sw_vers -productVersion; uname -m`
+      placeholder: macOS 15.5, Apple M2
+    validations:
+      required: true
+  - type: dropdown
+    id: target
+    attributes:
+      label: Where were you connecting the apps?
+      options:
+        - Claude Code
+        - Claude Desktop
+        - Both
+        - Neither (--skip-mcp)
+    validations:
+      required: true
+  - type: textarea
+    id: report
+    attributes:
+      label: setup-report.md (optional)
+      description: The installer writes it to your workspace folder (default ~/craft-workspace).
+      render: text

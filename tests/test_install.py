@@ -14,7 +14,23 @@ REPO = Path(__file__).resolve().parents[1]
 INSTALL = REPO / 'scripts/install.sh'
 
 
-class InstallerTests(unittest.TestCase):
+MCP_SERVER = r'''
+import json, sys
+for line in sys.stdin:
+    m = json.loads(line)
+    if m.get('method') == 'initialize':
+        r = {'protocolVersion': '2024-11-05', 'capabilities': {}, 'serverInfo': {'name': 'fixture', 'version': '1'}}
+    elif m.get('method') == 'tools/list':
+        r = {'tools': [{'name': 'fixture'}]}
+    else:
+        continue
+    print(json.dumps({'jsonrpc': '2.0', 'id': m['id'], 'result': r}), flush=True)
+'''
+
+
+class Fixture(unittest.TestCase):
+    """Temp HOME, fake downloads, fake DMGs and a fake `claude`. No network."""
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix='craft-fixture-')
         self.addCleanup(self.tmp.cleanup)
@@ -32,7 +48,8 @@ class InstallerTests(unittest.TestCase):
                         CRAFT_BIN_DIR=str(self.home / '.local/bin'),
                         CRAFT_WORKSPACE=str(self.home / 'workspace'),
                         CRAFT_CATALOG_DIR=str(self.catalog), FIXTURE=str(self.root),
-                        TMPDIR=str(self.root))
+                        TMPDIR=str(self.root),
+                        CRAFT_CLAUDE_DESKTOP_APPS=str(self.root / 'no-claude-desktop.app'))
         for key in ('CRAFT_YES', 'CRAFT_SKIP_MCP', 'CRAFT_GROUP', 'CRAFT_CURL_PROTO',
                     'CLAUDE_CONFIG_DIR'):
             self.env.pop(key, None)
@@ -46,11 +63,21 @@ shutil.copyfile(url.removeprefix('https://fixture/'), dest)
 import json, os, pathlib, sys
 r=pathlib.Path(os.environ['FIXTURE']); args=sys.argv[1:]
 with (r/'claude.log').open('a') as f: f.write(json.dumps(args)+'\\n')
-db=r/'mcp.json'; names=json.loads(db.read_text()) if db.exists() else []
+db=r/'mcp.json'; servers=json.loads(db.read_text()) if db.exists() else {}
 if args[:2]==['mcp','add']:
-    name=args[4]; names=list(dict.fromkeys(names+[name])); db.write_text(json.dumps(names))
+    name=args[4]; servers[name]=args[args.index('--')+1:]; db.write_text(json.dumps(servers))
+elif args[:2]==['mcp','get']:
+    project=pathlib.Path.cwd()/'.mcp.json'  # like claude: project servers from the current folder
+    if project.exists() and args[2] in json.loads(project.read_text()).get('mcpServers', {}):
+        print(args[2]+':'); print('  Scope: Project config'); sys.exit(0)
+    if args[2] not in servers: sys.exit(1)
+    print(args[2]+':'); print('  Command: '+servers[args[2]][0]); print('  Args: '+' '.join(servers[args[2]][1:]))
+elif args[:2]==['mcp','remove']:
+    name=args[-1]
+    if name not in servers: sys.exit(1)
+    del servers[name]; db.write_text(json.dumps(servers))
 elif args[:2]==['mcp','list']:
-    for n in names:
+    for n in servers:
         if os.environ.get('MCP_MISSING')==n: continue
         print(n+(': cmd - Failed to connect' if os.environ.get('MCP_FAIL')==n else ': cmd - Connected'))
     if os.environ.get('MCP_LIST_FAIL'): sys.exit(1)
@@ -73,10 +100,13 @@ elif args[0]=='detach':
         if p.is_dir(): shutil.rmtree(p)
         else: p.unlink()
 ''')
+        (self.root/'mcp_server.py').write_text(MCP_SERVER)
         self.apps = []
         for n in ('fake1', 'fake2'):
             archive = self.root / (n + '.zip')
-            binary = '#!/bin/bash\nif [ "${1:-}" = --version ]; then echo "' + n + '-cli 9.9.9"; else exit 0; fi\n'
+            binary = ('#!/bin/bash\nif [ "${1:-}" = --version ]; then echo "' + n + '-cli 9.9.9"; exit 0; fi\n'
+                      'if [ "${1:-}" = mcp ] && [ -z "${MCP_DEAD:-}" ]; then exec ' + sys.executable
+                      + ' -c "$(cat "$FIXTURE/mcp_server.py")"; fi\nexit 0\n')
             with zipfile.ZipFile(archive, 'w') as z:
                 z.writestr(n + '-payload/' + n + '-cli', binary)
             dmg = self.root / (n + '.dmg')
@@ -90,7 +120,8 @@ elif args[0]=='detach':
                                   sha256=hashlib.sha256(dmg.read_bytes()).hexdigest())))
         self.save_catalog()
         groups = {n: {'apps': ['fake1', 'fake2']} for n in ('creator', 'office', 'all')}
-        (self.catalog/'groups.json').write_text(json.dumps({'groups': groups}))
+        aliases = {'adobe': 'creator', 'microsoft': 'office'}
+        (self.catalog/'groups.json').write_text(json.dumps({'aliases': aliases, 'groups': groups}))
 
     def write_stub(self, name, source):
         p = self.stub / name
@@ -100,13 +131,15 @@ elif args[0]=='detach':
     def save_catalog(self):
         (self.catalog/'apps.json').write_text(json.dumps({'apps': self.apps}))
 
-    def run_install(self, *args, expected=0, extra=None, stdin=None):
+    def run_install(self, *args, expected=0, extra=None, stdin=None, cwd=None):
         env = dict(self.env, **(extra or {}))
-        r = subprocess.run(['/bin/bash', str(INSTALL), *args], env=env,
+        r = subprocess.run(['/bin/bash', str(INSTALL), *args], env=env, cwd=cwd,
                            input=stdin, text=True, capture_output=True, timeout=30)
         self.assertEqual(r.returncode, expected, r.stdout + r.stderr)
         return r.stdout + r.stderr
 
+
+class InstallerTests(Fixture):
     def test_checksum_fails_closed(self):
         self.apps[0]['sha256'] = '0' * 64
         self.save_catalog()
@@ -146,7 +179,8 @@ elif args[0]=='detach':
     def test_declined_connections_are_not_health_failures(self):
         self.run_install('--yes', '--skip-mcp')
         self.run_install('--group', 'all', stdin='n\nn\nn\nn\n')
-        self.assertNotIn('"add"', (self.root/'claude.log').read_text())
+        log = self.root/'claude.log'
+        self.assertNotIn('"add"', log.read_text() if log.exists() else '')
 
     def test_interactive_desktop_reads_user_answers(self):
         self.run_install('--skip-mcp', '--desktop', '--desktop-dir', str(self.target),
@@ -261,7 +295,7 @@ class PublicContractTests(unittest.TestCase):
         self.assertEqual(marketplace['name'], 'craft-studio-setup')
         entry = next(p for p in marketplace['plugins'] if p['name'] == 'craft-studio')
         self.assertEqual(plugin['name'], entry['name'])
-        self.assertEqual(plugin['version'], '0.2.0')
+        self.assertEqual(plugin['version'], '0.3.0')
         self.assertEqual(entry['version'], plugin['version'])
         self.assertTrue((REPO/entry['source']/entry['commands']/'craft-setup.md').is_file())
         self.assertEqual(plugin['repository'], 'https://github.com/qualixar/craft-studio-setup')

@@ -1,4 +1,13 @@
+# Local agent coordination board
 .modstage/
+# Download cache from local runs
 _cache/
-.DS_Store
 *.zip
+*.dmg
+# macOS and tool caches
+.DS_Store
+__pycache__/
+*.pyc
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/

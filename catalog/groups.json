@@ -1,16 +1,49 @@
 {
+  "aliases": {
+    "adobe": "creator",
+    "microsoft": "office"
+  },
   "groups": {
     "creator": {
-      "pitch": "The six free editors for photos, video, sound and design work.",
-      "apps": ["photocraft", "vectorcraft", "filmcraft", "lightcraft", "effectcraft", "soundcraft"]
+      "pitch": "The six free editors that stand in for Photoshop, Lightroom, Illustrator, After Effects, Premiere and a music studio.",
+      "apps": [
+        "photocraft",
+        "vectorcraft",
+        "filmcraft",
+        "lightcraft",
+        "effectcraft",
+        "soundcraft"
+      ]
     },
     "office": {
-      "pitch": "The seven free editors for documents, spreadsheets, slides, layouts and design files.",
-      "apps": ["pdfcraft", "wordcraft", "gridcraft", "deckcraft", "designcraft", "figcraft", "cadcraft"]
+      "pitch": "The seven free editors that stand in for Acrobat, Word, Excel, PowerPoint, InDesign, Figma and CAD.",
+      "apps": [
+        "pdfcraft",
+        "wordcraft",
+        "gridcraft",
+        "deckcraft",
+        "designcraft",
+        "figcraft",
+        "cadcraft"
+      ]
     },
     "all": {
       "pitch": "Everything: all 13 apps.",
-      "apps": ["photocraft", "vectorcraft", "filmcraft", "lightcraft", "effectcraft", "soundcraft", "pdfcraft", "wordcraft", "gridcraft", "deckcraft", "designcraft", "figcraft", "cadcraft"]
+      "apps": [
+        "photocraft",
+        "vectorcraft",
+        "filmcraft",
+        "lightcraft",
+        "effectcraft",
+        "soundcraft",
+        "pdfcraft",
+        "wordcraft",
+        "gridcraft",
+        "deckcraft",
+        "designcraft",
+        "figcraft",
+        "cadcraft"
+      ]
     }
   }
 }

@@ -54,7 +54,7 @@ def check_server(command, timeout=30):
         try:
             send({'jsonrpc': '2.0', 'id': 1, 'method': 'initialize',
                   'params': {'protocolVersion': '2024-11-05', 'capabilities': {},
-                             'clientInfo': {'name': 'craft-setup-check', 'version': '0.2.0'}}})
+                             'clientInfo': {'name': 'craft-setup-check', 'version': '0.3.0'}}})
             result = response(1)
             if not (isinstance(result.get('protocolVersion'), str)
                     and isinstance(result.get('capabilities'), dict)

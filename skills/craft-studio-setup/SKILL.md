@@ -67,28 +67,39 @@ shown in the dialog. SIGNING.md records the checks and their dates. Approve the
 prompt if you trust the publisher, then tell me to continue." Re-run
 `--version` afterwards.
 
-## Step 4: Connect the apps to Claude Code (MCP)
+## Step 4: Connect the apps to Claude Code and Claude Desktop (MCP)
 
-Say: "Now I connect each app to Claude Code, so I can work the apps for you.
-Choose a workspace folder (default: ~/craft-workspace). Folder access differs
-by app; the catalog supplies restrictions where supported. FilmCraft, GridCraft
-and CADCraft currently have no folder restriction flags in this catalog, so use
-a scratch project and review permissions. The workspace is not a universal sandbox."
+Say: "Now I connect each app, so Claude can work the apps for you. Choose a
+workspace folder (default: ~/craft-workspace). Folder access differs by app;
+the catalog supplies restrictions where supported. FilmCraft, GridCraft and
+CADCraft currently have no folder restriction flags in this catalog, so use a
+scratch project and review permissions. The workspace is not a universal sandbox."
 
 Ask: "Which folder may the apps use? (default ~/craft-workspace)" and "Connect
-them for you now?"
+them to Claude Code, Claude Desktop, or both?" (default: both, if Claude
+Desktop is installed).
 
-On yes, run:
+First show the plan without changing anything:
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/install.sh --group <group> --mcp-only --workspace <folder>
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/install.sh --group <group> --mcp-only --workspace <folder> --both --dry-run
 ```
 
-This runs `claude mcp add` at **user scope** for each app, then verifies with
-`claude mcp list`. If it reports a connection failure (exit 2), name the server
-and stop claiming success. To check launch commands without registering, use
-`--verify-mcp --group <group> --workspace <folder>`. This sends initialize and
-lists tools directly over stdio, then stops the servers.
+On yes, run the same command without `--dry-run` (use `--claude-code` or
+`--claude-desktop` instead of `--both` if they chose one). Claude Code servers
+are added with `claude mcp add` at **user scope**. For Claude Desktop the
+script backs up `claude_desktop_config.json`, adds only our servers, keeps
+everything else and checks the file afterwards. Then tell the user: "Quit
+Claude Desktop completely (Cmd+Q) and open it again to load the apps."
+
+The script finishes with a handshake check of every server. If it reports a
+connection failure (exit 2), name the server and stop claiming success. If it
+refuses to edit the Claude Desktop config because the file is not valid JSON,
+say so plainly and do not edit the file yourself.
+
+To remove everything later: `bash ${CLAUDE_PLUGIN_ROOT}/scripts/uninstall.sh --dry-run`
+shows what would go; without `--dry-run` it asks, then removes only what this
+installer added.
 
 ## Step 5: The card
 
