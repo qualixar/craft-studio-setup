@@ -285,8 +285,10 @@ explains each step in plain words and asks before every install:
 ## Video and guide
 
 Watch the walkthrough by searching for **Qualixar AI on YouTube** (ArtCraft
-Episode 2: Claude Code and seven free Office alternatives). Written guides,
-including the Episode 1 guide to the creative apps, are at
+Episode 2: Claude Code and seven free Office alternatives). Every prompt from
+that episode is in the free guide at
+[qualixar.com/learn/guides/claude-code-7-free-office-alternatives](https://qualixar.com/learn/guides/claude-code-7-free-office-alternatives),
+and the Episode 1 guide to the creative apps is with the others at
 [qualixar.com/learn/guides](https://qualixar.com/learn/guides).
 
 ## For developers
