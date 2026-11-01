@@ -45,7 +45,7 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   2.1), issue and pull request templates, CODEOWNERS and Dependabot for
   GitHub Actions.
 - Tests for aliases, dry run, Claude Desktop merge, bad JSON, idempotency,
-  uninstall and the bootstrapper's checksum check (59 tests in total).
+  uninstall and the bootstrapper's checksum check (61 tests in total).
 
 ### Changed
 

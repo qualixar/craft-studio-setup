@@ -438,7 +438,7 @@ if [ "$TARGET_CODE" = 1 ] || [ "$TARGET_DESKTOP" = 1 ]; then
         ours=0
         if [ -n "$recorded" ]; then
           # Ours only while it still matches what we recorded writing.
-          python3 -I "$MCP_CONFIG" cc-match --entry "$recorded" <<< "$existing" && ours=1
+          python3 -I "$MCP_CONFIG" cc-match --entry "$recorded" --name "$mcp_name" --claude-config "${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json" <<< "$existing" && ours=1
         else
           # Registered by v0.2.0 of this installer, which kept no record: same scope and binary.
           case "$existing" in *"Scope: User"*"Command: $bin"$'\n'*) ours=1;; esac

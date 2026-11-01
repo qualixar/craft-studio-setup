@@ -247,7 +247,7 @@ script). Read the plan it printed, then add `--yes`.
 The one-line command downloads `install.sh` from the `v0.3.0` tag. Its
 SHA-256 is:
 
-<!-- INSTALL-SH-SHA256 -->`7167a013144b7c179e10131c088b80ad875f4b0c1848698801b6d6fc6f868cb1`<!-- /INSTALL-SH-SHA256 -->
+<!-- INSTALL-SH-SHA256 -->`4347854b4476f1728c22c35d7957e593de87b709646b9331f1da69cb094e8ba3`<!-- /INSTALL-SH-SHA256 -->
 
 To check it yourself before running anything:
 
@@ -292,7 +292,7 @@ including the Episode 1 guide to the creative apps, are at
 ## For developers
 
 ```bash
-bash tests/test_install.sh                    # 59 tests, temporary HOME, no network
+bash tests/test_install.sh                    # 61 tests, temporary HOME, no network
 shellcheck install.sh scripts/*.sh tests/*.sh
 ruff check .
 python3 scripts/update_checksums.py --check   # the embedded checksums are current

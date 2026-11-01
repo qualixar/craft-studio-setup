@@ -309,6 +309,13 @@ class LifecycleTests(Fixture):
         self.run_uninstall('--yes')
         self.assertEqual(self.claude_db(), {})
 
+    def test_ambiguous_claude_lookup_keeps_record_and_fails(self):
+        self.run_install('--yes', '--claude-code')
+        out = self.run_uninstall('--yes', expected=1, extra={'CLAUDE_GET_FAIL': '1'})
+        self.assertIn('could not look it up', out)
+        self.run_uninstall('--yes')
+        self.assertEqual(self.claude_db(), {})
+
     def test_identical_existing_desktop_entry_is_not_adopted(self):
         self.run_install('--yes', '--skip-mcp')
         entry = {'command': str(self.bin / 'fake1-cli'),
@@ -435,11 +442,30 @@ class ConfigHelperTests(unittest.TestCase):
         self.assertEqual((first.read_bytes(), second.read_bytes()), (b'one', b'two'))
         self.assertEqual(first.stat().st_mode & 0o777, 0o600)
 
+    def test_cc_match_reads_exact_entry_from_claude_config(self):
+        entry = {'command': '/b/x-cli', 'args': ['mcp', '--root', '/w s']}
+        config = self.tmp / '.claude.json'
+        for stored, expected in ((dict(entry, type='stdio', env={}), 0),
+                                 (dict(entry, env={'TOKEN': 'x'}), 1),
+                                 ({'command': '/b/x-cli', 'args': ['mcp', '--root /w', 's']}, 1)):
+            with self.subTest(stored=stored):
+                config.write_text(json.dumps({'mcpServers': {'x': stored}}))
+                old = __import__('sys').stdin
+                __import__('sys').stdin = io.StringIO('')
+                try:
+                    rc = self.mod.main(['cc-match', '--entry', json.dumps(entry), '--name', 'x',
+                                        '--claude-config', str(config)])
+                finally:
+                    __import__('sys').stdin = old
+                self.assertEqual(rc, expected)
+
     def test_cc_match(self):
         entry = json.dumps({'command': '/b/x-cli', 'args': ['mcp', '--root', '/w s']})
         good = 'x:\n  Scope: User config\n  Command: /b/x-cli\n  Args: mcp --root /w s\n'
+        env = good + '  Environment:\n    TOKEN=x\n'
         for text, expected in ((good, 0), (good.replace('User', 'Project'), 1),
-                               (good.replace('/w s', '/w s --extra'), 1)):
+                               (good.replace('/w s', '/w s --extra'), 1), (env, 1),
+                               (good + '  Environment:\n\n', 0)):
             with self.subTest(text=text):
                 import contextlib
                 with contextlib.redirect_stdout(io.StringIO()):

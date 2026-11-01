@@ -164,8 +164,17 @@ if [ "$KEEP_MCP" = 0 ]; then
       FAILED=1; continue
     fi
     if [ "$DRY_RUN" = 1 ]; then act "run: claude mcp remove --scope user $mcp_name"; continue; fi
-    if existing="$(claude_cmd mcp get "$mcp_name" 2>/dev/null </dev/null)"; then
-      if python3 -I "$MCP_CONFIG" cc-match --entry "$recorded" <<< "$existing"; then
+    lookup_rc=0
+    existing="$(claude_cmd mcp get "$mcp_name" 2>&1 </dev/null)" || lookup_rc=$?
+    if [ "$lookup_rc" != 0 ]; then
+      case "$existing" in
+        *"No MCP server named"*) ;;
+        *) echo "   $mcp_name: could not look it up in Claude Code (claude mcp get exit $lookup_rc); kept the record, run uninstall again" >&2
+           FAILED=1; continue;;
+      esac
+    fi
+    if [ "$lookup_rc" = 0 ]; then
+      if python3 -I "$MCP_CONFIG" cc-match --entry "$recorded" --name "$mcp_name" --claude-config "${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json" <<< "$existing"; then
         if claude_cmd mcp remove --scope user "$mcp_name" </dev/null >/dev/null 2>&1; then
           act "removed Claude Code server $mcp_name"; REMOVED=$((REMOVED + 1))
         else

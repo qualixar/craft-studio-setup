@@ -199,13 +199,18 @@ def commit(path, data, doc, before_doc, ours, raw, state, state_path):
             verify(path, doc, before_doc, ours)
         save_state(state_path, state)
     except (CheckFailed, OSError, ValueError) as error:
+        # Put the previous bytes back only if the file still holds what we wrote;
+        # if another program changed it since, keep its version.
+        if _current_bytes(path) != data:
+            _fail(CHECK_FAILED, f'{error}; the file was changed by another program meanwhile, '
+                                'so it was left as that program wrote it')
         if raw is None:
             try:
                 path.unlink()
             except OSError:
                 pass
         else:
-            atomic_write(path, raw)
+            atomic_write(path, raw, expect=data)
         _fail(CHECK_FAILED, f'{error}; the previous file was put back')
 
 
@@ -368,15 +373,45 @@ def _store_record(state, path, record):
         state['configs'].pop(str(path), None)
 
 
+def _user_scope_entry(name, config):
+    """The exact user-scope entry from Claude Code's own config file, if readable."""
+    try:
+        servers = json.loads(Path(config).read_text()).get('mcpServers', {})
+    except (OSError, ValueError, AttributeError):
+        return None
+    return servers.get(name) if isinstance(servers, dict) else None
+
+
 def cmd_cc_match(args):
-    """Exit 0 when `claude mcp get` output on stdin shows this exact user-scope entry."""
+    """Exit 0 when this user-scope Claude Code server is exactly the recorded entry.
+
+    Reads Claude Code's config file when possible (exact argument boundaries,
+    environment), otherwise the `claude mcp get` text on stdin. Anything that
+    cannot be established counts as "not ours".
+    """
     entry = json.loads(args.entry)
-    fields = {}
-    for line in sys.stdin.read().splitlines():
-        key, sep, value = line.strip().partition(':')
-        if sep and key in ('Scope', 'Command', 'Args'):
+    text = sys.stdin.read()
+    exact = _user_scope_entry(args.name, args.claude_config) if args.name else None
+    if isinstance(exact, dict):
+        extra = set(exact) - {'type', 'command', 'args', 'env'}
+        return 0 if (not extra and exact.get('type', 'stdio') == 'stdio'
+                     and exact.get('command') == entry['command']
+                     and exact.get('args', []) == entry['args']
+                     and not exact.get('env')) else 1
+    fields, env_lines, in_env = {}, 0, False
+    for line in text.splitlines():
+        stripped = line.strip()
+        key, sep, value = stripped.partition(':')
+        if in_env:
+            if line.startswith('    ') and stripped:
+                env_lines += 1
+                continue
+            in_env = False
+        if sep and key == 'Environment':
+            in_env = True
+        elif sep and key in ('Scope', 'Command', 'Args'):
             fields[key] = value.strip()
-    return 0 if (fields.get('Scope', '').startswith('User')
+    return 0 if (fields.get('Scope', '').startswith('User') and not env_lines
                  and fields.get('Command') == entry['command']
                  and fields.get('Args', '') == ' '.join(entry['args'])) else 1
 
@@ -431,6 +466,8 @@ def main(argv=None):
 
     p = sub.add_parser('cc-match')
     p.add_argument('--entry', required=True)
+    p.add_argument('--name', default='')
+    p.add_argument('--claude-config', default=str(Path.home() / '.claude.json'))
     p.set_defaults(func=cmd_cc_match)
 
     p = sub.add_parser('state')

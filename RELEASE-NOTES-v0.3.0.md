@@ -27,7 +27,7 @@ Uninstall: `... | bash -s -- uninstall`. Preview anything with `--dry-run`.
 - `--dry-run`, idempotent re-runs ("Already installed, nothing changed."),
   and `scripts/uninstall.sh`, which removes only what this installer added.
 - An MCP handshake check (initialize + tools/list) after every install.
-- CI on macOS 14 and 15, 59 offline tests, and community files.
+- CI on macOS 14 and 15, 61 offline tests, and community files.
 
 Full list: [CHANGELOG.md](CHANGELOG.md).
 
@@ -35,7 +35,7 @@ Full list: [CHANGELOG.md](CHANGELOG.md).
 
 `install.sh` at this tag:
 
-<!-- INSTALL-SH-SHA256 -->`7167a013144b7c179e10131c088b80ad875f4b0c1848698801b6d6fc6f868cb1`<!-- /INSTALL-SH-SHA256 -->
+<!-- INSTALL-SH-SHA256 -->`4347854b4476f1728c22c35d7957e593de87b709646b9331f1da69cb094e8ba3`<!-- /INSTALL-SH-SHA256 -->
 
 Every file in the repository: [SHA256SUMS](SHA256SUMS).
 
@@ -77,7 +77,7 @@ block holding an example value), plus `globalShortcut` and `preferences` keys.
 | Step | Command | Result |
 | --- | --- | --- |
 | 1 | `boot all --dry-run --both "${COMMON[@]}"` | exit 0, 10 s. Listed all 13 downloads with URL and SHA-256, every folder, link, `claude mcp add` line and the Desktop config change. "DRY RUN complete: 27 change(s) would be made; nothing was changed." |
-| 2 | `boot microsoft --yes --both "${COMMON[@]}"` | exit 0, 118 s. "Verified 6 files against the checksums in this script (v0.3.0)." 7 CLIs downloaded, checksum OK, installed; 7 `claude mcp add --scope user`; Desktop config backed up and 7 servers added; `claude mcp list` showed all 7 "✔ Connected"; handshake PASS for all 7. "DONE. 15 change(s) made." |
+| 2 | `boot microsoft --yes --both "${COMMON[@]}"` | exit 0, 122 s. "Verified 6 files against the checksums in this script (v0.3.0)." 7 CLIs downloaded, checksum OK, installed; 7 `claude mcp add --scope user`; Desktop config backed up and 7 servers added; `claude mcp list` showed all 7 "✔ Connected"; handshake PASS for all 7. "DONE. 15 change(s) made." |
 | 3 | `boot adobe --yes --both "${COMMON[@]}"` | exit 0, 110 s. Same for the 6 creator apps ("DONE. 13 change(s) made."); the 7 office servers in the Desktop config were kept. |
 | 4 | `boot microsoft --yes --both "${COMMON[@]}"` (again) | exit 0, 6 s. Every app "already installed ... nothing changed", every server "already registered", Desktop config "nothing to change". "Already installed, nothing changed." |
 | 5 | `bash scripts/install.sh all --verify-mcp "${COMMON[@]}"` | exit 0. All 13 PASS (protocol 2024-11-05). Tools: photocraft 26, vectorcraft 33, filmcraft 17, lightcraft 17, effectcraft 27, soundcraft 17, pdfcraft 17, wordcraft 17, gridcraft 22, deckcraft 25, designcraft 26, figcraft 19, cadcraft 12. |
@@ -101,7 +101,7 @@ covers it.
 
 ## Tests
 
-`bash tests/test_install.sh`: 59 tests, all passing on the machine above, in
+`bash tests/test_install.sh`: 61 tests, all passing on the machine above, in
 temporary home folders with fake downloads and a fake `claude`. They cover
 aliases, dry run (no file under HOME changes), the Claude Desktop merge (other
 servers and unknown keys kept, backup made, same-named foreign entry left
@@ -114,23 +114,24 @@ terminal, tampered files, tarball pin) and checksum freshness.
 
 ## Independent review (Codex, gpt-6.1-sol, read-only)
 
-Twelve findings on the first v0.3.0 commit; all were fixed before release and
-each fix has a test where one is practical.
+Twelve findings on the first v0.3.0 commit. A second read-only pass on the
+fixes marked nine fixed and three incomplete (3, 6 and 12); those were then
+completed as described below. Each fix has a test where one is practical.
 
 | # | Finding | Fix |
 | --- | --- | --- |
 | 1 | Unlisted files in the downloaded tarball (for example a planted `scripts/json.py`) could be imported by the checked Python helpers | The bootstrapper copies only the listed files into a clean folder, checks them there and runs only from it; every Python helper runs with `python3 -I`. Test: planted modules never run. |
 | 2 | Uninstall removed any catalog-named folder under `~/tools/craft` | CLI installs are recorded; uninstall removes a folder only when recorded, or when it is the target of our v0.2.0 link. Test: a hand-made folder is kept. |
-| 3 | Uninstall removed Claude Code servers edited after install | It compares `claude mcp get` (scope, command, args) with what was recorded and leaves edited ones. Test added. |
+| 3 | Uninstall removed Claude Code servers edited after install | It reads the exact user-scope entry from Claude Code's own config file (command, each argument, no added environment) and falls back to `claude mcp get` text; anything it cannot confirm is left alone. Tests added. |
 | 4 | An identical pre-existing Claude Desktop entry was adopted and later removed | Identical entries the installer did not write are reported and never adopted. Test added. |
 | 5 | A re-run could overwrite user edits to an entry the installer wrote | Entries are updated only while they still equal the recorded value. Test added. |
-| 6 | A config edited by another program during the run could be overwritten | The rename happens only if the file still holds the bytes that were read; otherwise nothing is written and the run asks you to retry. A very short window remains between that check and the rename. Test added. |
+| 6 | A config edited by another program during the run could be overwritten | The rename happens only if the file still holds the bytes that were read; otherwise nothing is written and the run asks you to retry. A very short window remains between that check and the rename. A rollback after a failed check also restores only if the file still holds what this run wrote. Test added. |
 | 7 | Backups were created with a check-then-write that follows symlinks | Backups use exclusive, no-follow creation with mode 600. Test added. |
 | 8 | The byte-for-byte restore was not atomic | It now goes through the same synced temporary file and rename. |
 | 9 | Config change and ownership record were not saved together | If the record cannot be saved, the previous config is put back. |
 | 10 | A failed desktop-app record could still report success | It now stops with an error that names the app. |
 | 11 | A crashed MCP checker could pass silently | Every app needs its own PASS line; anything else, or a non-zero checker exit, is a failure. |
-| 12 | A failed `claude mcp remove` was reported as "already gone" and forgotten | Absence is confirmed with `claude mcp get`; a failed removal keeps the record and uninstall exits 1. Test added. |
+| 12 | A failed `claude mcp remove` was reported as "already gone" and forgotten | A server counts as gone only when `claude mcp get` says "No MCP server named"; any other lookup error, or a failed removal, keeps the record and uninstall exits 1. Tests added. |
 
 ## Not verified
 

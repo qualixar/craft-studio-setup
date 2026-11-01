@@ -67,10 +67,11 @@ db=r/'mcp.json'; servers=json.loads(db.read_text()) if db.exists() else {}
 if args[:2]==['mcp','add']:
     name=args[4]; servers[name]=args[args.index('--')+1:]; db.write_text(json.dumps(servers))
 elif args[:2]==['mcp','get']:
+    if os.environ.get('CLAUDE_GET_FAIL'): print('Error: could not read config'); sys.exit(1)
     project=pathlib.Path.cwd()/'.mcp.json'  # like claude: project servers from the current folder
     if project.exists() and args[2] in json.loads(project.read_text()).get('mcpServers', {}):
         print(args[2]+':'); print('  Scope: Project config'); sys.exit(0)
-    if args[2] not in servers: sys.exit(1)
+    if args[2] not in servers: print('No MCP server named "'+args[2]+'".'); sys.exit(1)
     print(args[2]+':'); print('  Scope: User config (available in all your projects)')
     print('  Command: '+servers[args[2]][0]); print('  Args: '+' '.join(servers[args[2]][1:]))
 elif args[:2]==['mcp','remove']:
