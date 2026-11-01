@@ -67,7 +67,7 @@ MCP_CONFIG="$SCRIPT_DIR/mcp_config.py"
 STATE_FILE="$CRAFT_HOME/.craft-setup-state.json"
 [ -f "$APPS_JSON" ] || { echo "catalog not found: $APPS_JSON" >&2; exit 1; }
 
-WANTED_LIST="$(python3 - "$APPS_JSON" "$CATALOG_DIR/groups.json" "$GROUP" "$ONLY" <<'EOF'
+WANTED_LIST="$(python3 -I - "$APPS_JSON" "$CATALOG_DIR/groups.json" "$GROUP" "$ONLY" <<'EOF'
 import json, sys
 apps = {a["name"]: a for a in json.load(open(sys.argv[1]))["apps"]}
 data = json.load(open(sys.argv[2]))
@@ -85,7 +85,7 @@ for n in names:
 EOF
 )"
 
-state() { python3 "$MCP_CONFIG" state "$@" --state "$STATE_FILE"; }
+state() { python3 -I "$MCP_CONFIG" state "$@" --state "$STATE_FILE"; }
 # Run `claude` from an empty folder so a project .mcp.json in the current
 # folder (or its parents) is never mistaken for a user-scope server.
 CLAUDE_CWD=""
@@ -98,19 +98,36 @@ claude_cmd() {
 }
 
 act() { if [ "$DRY_RUN" = 1 ]; then echo "   [dry-run] would $*"; else echo "   $*"; fi; }
-REMOVED=0
+REMOVED=0; FAILED=0
+
+# cli_owned <app> <binary>: the folder was installed by this installer, either
+# recorded in the state file or (v0.2.0, no state) linked from $BIN_DIR into it.
+cli_owned() {
+  local recorded target
+  [ -d "$CRAFT_HOME/$1" ] || return 1
+  recorded="$(state get --kind clis --key "$1")"
+  if [ -n "$recorded" ]; then
+    [ "$(python3 -I -c 'import json,sys; print(json.loads(sys.argv[1])["dir"])' "$recorded")" = "$CRAFT_HOME/$1" ]
+    return
+  fi
+  [ -L "$BIN_DIR/$2" ] || return 1
+  target="$(readlink "$BIN_DIR/$2")"
+  case "$target" in "$CRAFT_HOME/$1/"*) [ -f "$target" ];; *) return 1;; esac
+}
+link_owned() { # link_owned <app> <binary>: the link points into our folder for this app
+  [ -L "$BIN_DIR/$2" ] || return 1
+  case "$(readlink "$BIN_DIR/$2")" in "$CRAFT_HOME/$1/"*) return 0;; *) return 1;; esac
+}
 
 # --- plan --------------------------------------------------------------------
 echo "Craft Studio Setup uninstall$([ "$DRY_RUN" = 1 ] && echo ' (DRY RUN: nothing will be changed)')"
 PLAN=""
 while read -r app binary mcp_name; do
   [ -z "$app" ] && continue
-  [ -d "$CRAFT_HOME/$app" ] && PLAN="${PLAN}   remove folder $CRAFT_HOME/$app"$'\n'
-  link="$BIN_DIR/$binary"
-  if [ -L "$link" ]; then
-    target="$(readlink "$link")"
-    case "$target" in "$CRAFT_HOME"/*) PLAN="${PLAN}   remove link $link"$'\n';; esac
+  if cli_owned "$app" "$binary"; then PLAN="${PLAN}   remove folder $CRAFT_HOME/$app"$'\n'
+  elif [ -d "$CRAFT_HOME/$app" ]; then PLAN="${PLAN}   keep folder $CRAFT_HOME/$app (not recorded as installed by this installer)"$'\n'
   fi
+  link_owned "$app" "$binary" && PLAN="${PLAN}   remove link $BIN_DIR/$binary"$'\n'
   if [ "$KEEP_DESKTOP" = 0 ] && [ -n "$(state get --kind desktop_apps --key "$app")" ]; then
     PLAN="${PLAN}   remove desktop app recorded for $app"$'\n'
   fi
@@ -140,27 +157,34 @@ if [ "$KEEP_MCP" = 0 ]; then
   while read -r app binary mcp_name; do
     [ -z "$app" ] && continue
     NAMES="${NAMES}${mcp_name},"
-    if [ -n "$(state get --kind claude_code --key "$mcp_name")" ]; then
-      if ! command -v claude >/dev/null 2>&1; then
-        echo "   $mcp_name: Claude Code CLI not found; run 'claude mcp remove --scope user $mcp_name' later" >&2
-      elif [ "$DRY_RUN" = 1 ]; then
-        act "run: claude mcp remove --scope user $mcp_name"
-      else
-        if claude_cmd mcp remove --scope user "$mcp_name" </dev/null >/dev/null 2>&1; then
-          act "removed Claude Code server $mcp_name"
-        else
-          act "Claude Code server $mcp_name was already gone"
-        fi
-        state delete --kind claude_code --key "$mcp_name" >/dev/null || true
-        REMOVED=$((REMOVED + 1))
-      fi
+    recorded="$(state get --kind claude_code --key "$mcp_name")"
+    [ -n "$recorded" ] || continue
+    if ! command -v claude >/dev/null 2>&1; then
+      echo "   $mcp_name: Claude Code CLI not found; kept the record so a later uninstall can remove it" >&2
+      FAILED=1; continue
     fi
+    if [ "$DRY_RUN" = 1 ]; then act "run: claude mcp remove --scope user $mcp_name"; continue; fi
+    if existing="$(claude_cmd mcp get "$mcp_name" 2>/dev/null </dev/null)"; then
+      if python3 -I "$MCP_CONFIG" cc-match --entry "$recorded" <<< "$existing"; then
+        if claude_cmd mcp remove --scope user "$mcp_name" </dev/null >/dev/null 2>&1; then
+          act "removed Claude Code server $mcp_name"; REMOVED=$((REMOVED + 1))
+        else
+          echo "   $mcp_name: 'claude mcp remove' failed; kept the record, run uninstall again" >&2
+          FAILED=1; continue
+        fi
+      else
+        echo "   $mcp_name: left alone in Claude Code (edited since this installer added it)"
+      fi
+    else
+      act "Claude Code server $mcp_name was already gone"
+    fi
+    state delete --kind claude_code --key "$mcp_name" >/dev/null || true
   done <<< "$WANTED_LIST"
   DRY_FLAG=(); [ "$DRY_RUN" = 1 ] && DRY_FLAG=(--dry-run)
   while IFS= read -r config; do
     [ -z "$config" ] && continue
     rc=0
-    python3 "$MCP_CONFIG" remove --config "$config" --label "MCP config" --state "$STATE_FILE" \
+    python3 -I "$MCP_CONFIG" remove --config "$config" --label "MCP config" --state "$STATE_FILE" \
       --names "$NAMES" "${DRY_FLAG[@]+"${DRY_FLAG[@]}"}" || rc=$?
     case "$rc" in 0) ;; 10) REMOVED=$((REMOVED + 1))
       case "$config" in "$CLAUDE_DESKTOP_CONFIG"|*/Claude/claude_desktop_config.json)
@@ -175,7 +199,7 @@ if [ "$KEEP_DESKTOP" = 0 ]; then
     [ -z "$app" ] && continue
     recorded="$(state get --kind desktop_apps --key "$app")"
     [ -n "$recorded" ] || continue
-    path="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["path"])' "$recorded")"
+    path="$(python3 -I -c 'import json,sys; print(json.loads(sys.argv[1])["path"])' "$recorded")"
     case "$path" in *.app) ;; *) echo "   skipping unexpected desktop path: $path" >&2; continue;; esac
     if [ -d "$path" ]; then
       act "remove desktop app $path"
@@ -190,16 +214,19 @@ fi
 # --- CLIs ------------------------------------------------------------------------
 while read -r app binary mcp_name; do
   [ -z "$app" ] && continue
-  link="$BIN_DIR/$binary"
-  if [ -L "$link" ]; then
-    case "$(readlink "$link")" in
-      "$CRAFT_HOME"/*) act "remove link $link"; [ "$DRY_RUN" = 1 ] || { rm -f "$link"; REMOVED=$((REMOVED + 1)); };;
-      *) echo "   leaving $link: it does not point into $CRAFT_HOME";;
-    esac
+  owned=0; cli_owned "$app" "$binary" && owned=1
+  if link_owned "$app" "$binary"; then
+    act "remove link $BIN_DIR/$binary"
+    [ "$DRY_RUN" = 1 ] || { rm -f "$BIN_DIR/$binary"; REMOVED=$((REMOVED + 1)); }
   fi
-  if [ -d "$CRAFT_HOME/$app" ]; then
+  if [ "$owned" = 1 ]; then
     act "remove folder $CRAFT_HOME/$app"
-    [ "$DRY_RUN" = 1 ] || { rm -rf "${CRAFT_HOME:?}/${app:?}"; REMOVED=$((REMOVED + 1)); }
+    if [ "$DRY_RUN" = 0 ]; then
+      rm -rf "${CRAFT_HOME:?}/${app:?}"; REMOVED=$((REMOVED + 1))
+      state delete --kind clis --key "$app" >/dev/null || true
+    fi
+  elif [ -d "$CRAFT_HOME/$app" ]; then
+    echo "   kept $CRAFT_HOME/$app: not recorded as installed by this installer"
   fi
 done <<< "$WANTED_LIST"
 
@@ -208,12 +235,13 @@ if [ "$DRY_RUN" = 0 ] && [ -d "$CRAFT_HOME" ]; then
   remaining="$(find "$CRAFT_HOME" -mindepth 1 -maxdepth 1 ! -name .cache-zips ! -name .craft-setup-state.json -print | head -1)"
   if [ -z "$remaining" ]; then
     rm -rf "${CRAFT_HOME:?}/.cache-zips"
-    if [ -f "$STATE_FILE" ] && [ "$(state keys --kind configs)$(state keys --kind claude_code)$(state keys --kind desktop_apps)" = "" ]; then
-      rm -f "$STATE_FILE"
-    fi
     rmdir "$CRAFT_HOME" 2>/dev/null && echo "   removed empty folder $CRAFT_HOME" || true
   fi
 fi
 
 if [ "$DRY_RUN" = 1 ]; then echo "DRY RUN complete: nothing was changed."; exit 0; fi
+if [ "$FAILED" = 1 ]; then
+  echo "Uninstall finished with problems ($REMOVED item(s) removed); see the messages above." >&2
+  exit 1
+fi
 echo "Uninstall complete ($REMOVED item(s) removed). Your workspace $WORKSPACE was kept."

@@ -29,9 +29,9 @@ CRAFT_SETUP_REPO="qualixar/craft-studio-setup"
 CRAFT_SETUP_SUMS='
 44cdf779dc65f9a341736e0b8382d3715ff4034fa1328fc2709ef1592ab9b1a2  catalog/apps.json
 749bf249e865293dac57e321741d9abfe818658050a88204bda99ab62fb02a6f  catalog/groups.json
-4788accbd0764070c7e0d26c7c337d74e21568b6797eb306d8b182be58646645  scripts/install.sh
-8c86f9e4720cc670628bfb1d922d6f0255cc90e2fd9e01681d117c6c21c5edc0  scripts/mcp_config.py
-165c3454409fd93a7518eff631d03121566504db3c1d01e4bc3be4ae8f8f274f  scripts/uninstall.sh
+ebacc68d29bda5362e778036a1d550ac0623f947dbd56da732ead6094b5f04e4  scripts/install.sh
+df6f752d5e26da137d6083adb923d8826b9e226de84c675d737a4ee029e4c2ba  scripts/mcp_config.py
+a4dbb53b8382c1476fc35791e2e97536aebe62ac82f96f9c1d23bb8a798b0390  scripts/uninstall.sh
 8e9d4fcfe1e2c513898e7805d16cad6f65408248e8e8e4fff9a3e7953fb681d6  scripts/verify_mcp.py
 '
 # END CHECKSUMS
@@ -89,19 +89,24 @@ main() {
     local top
     top="$(find "$tmp/src" -mindepth 1 -maxdepth 1 -type d | head -1)"
     [ -n "$top" ] || { echo "The download did not contain the expected folder." >&2; return 1; }
-    src="$top"
+    # Copy each listed file into a clean folder, check it there, and run only
+    # from that folder: nothing else from the download can be executed or imported.
+    src="$tmp/verified"
     local sha path actual checked=0
     while read -r sha path; do
       [ -n "$sha" ] || continue
-      if [ ! -f "$src/$path" ]; then
-        echo "CHECKSUM CHECK FAILED: $path is missing from the download. Nothing was installed." >&2; return 1
+      if [ -L "$top/$path" ] || [ ! -f "$top/$path" ]; then
+        echo "CHECKSUM CHECK FAILED: $path is missing from the download or is not a plain file. Nothing was installed." >&2; return 1
       fi
+      mkdir -p "$src/$(dirname "$path")"
+      cp "$top/$path" "$src/$path"
       actual="$(shasum -a 256 "$src/$path" | awk '{print $1}')"
       if [ "$actual" != "$sha" ]; then
         echo "CHECKSUM MISMATCH for $path (expected $sha, got $actual). Nothing was installed." >&2; return 1
       fi
       checked=$((checked + 1))
     done <<< "$CRAFT_SETUP_SUMS"
+    rm -rf "$tmp/src"
     echo "Verified $checked files against the checksums in this script ($CRAFT_SETUP_REF)."
   fi
 

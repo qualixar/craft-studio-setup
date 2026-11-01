@@ -17,8 +17,10 @@ with its maker, [Storytold](https://github.com/storytold).
 2. **The scripts and catalog it runs.** The bootstrapper downloads the tagged
    source tarball from `codeload.github.com` over HTTPS and checks the SHA-256
    of each file it will execute or read (`scripts/*.sh`, `scripts/*.py`,
-   `catalog/*.json`) against a list embedded in itself. One mismatch stops the
-   run before anything is installed. GitHub generates the tarball on request,
+   `catalog/*.json`) against a list embedded in itself. Only those files are
+   copied out of the download into a clean folder and run from there, and the
+   Python helpers run with `python3 -I`, so nothing else in the download can be
+   executed or imported. One mismatch stops the run before anything is installed. GitHub generates the tarball on request,
    so this per-file check does not depend on the tarball's own bytes. If the
    release notes publish a tarball SHA-256, set `CRAFT_SETUP_TARBALL_SHA256`
    to check that as well.
@@ -57,11 +59,20 @@ Flags `--craft-home`, `--bin-dir`, `--workspace` and `--desktop-dir` move
 these paths; pass the same flags to the uninstaller.
 
 Config edits (`scripts/mcp_config.py`): invalid JSON is refused untouched; a
-byte-for-byte backup is written before the first change; only `mcpServers`
-entries are added, and only ones whose names are free or were written by this
-installer; the new file is written to a temporary file, synced and renamed
-into place, then read back. If the read-back shows any other key or server
-changed, the previous file is put back and the run stops.
+byte-for-byte backup is created exclusively (never through a symlink, mode
+600) before the first change; an entry is added only under a free name, and
+updated or removed only while it still equals what this installer recorded
+writing. The new file is written to a temporary file, synced, and renamed into
+place only if the original still holds the bytes that were read, so an edit
+made by another program during the run is detected instead of overwritten
+(a window of a few microseconds remains between that check and the rename). It is then read back; if any other key or
+server changed, or the ownership record cannot be saved, the previous file is
+put back and the run stops.
+
+Uninstall removes a CLI folder only when the state file records it (or, for
+v0.2.0 installs, when our link points into it), a Claude Code server only when
+`claude mcp get` still shows the recorded command and arguments at user scope,
+and a desktop app only when it is recorded.
 
 ## Limits of testing
 

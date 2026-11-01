@@ -71,8 +71,10 @@ elif args[:2]==['mcp','get']:
     if project.exists() and args[2] in json.loads(project.read_text()).get('mcpServers', {}):
         print(args[2]+':'); print('  Scope: Project config'); sys.exit(0)
     if args[2] not in servers: sys.exit(1)
-    print(args[2]+':'); print('  Command: '+servers[args[2]][0]); print('  Args: '+' '.join(servers[args[2]][1:]))
+    print(args[2]+':'); print('  Scope: User config (available in all your projects)')
+    print('  Command: '+servers[args[2]][0]); print('  Args: '+' '.join(servers[args[2]][1:]))
 elif args[:2]==['mcp','remove']:
+    if os.environ.get('CLAUDE_REMOVE_FAIL'): sys.exit(1)
     name=args[-1]
     if name not in servers: sys.exit(1)
     del servers[name]; db.write_text(json.dumps(servers))

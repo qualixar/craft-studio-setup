@@ -283,6 +283,52 @@ class LifecycleTests(Fixture):
         self.assertIn('left alone', out)
         self.assertEqual(set(self.realistic_config()['mcpServers']) - set(after), set())
 
+    def test_uninstall_keeps_folders_it_did_not_install(self):
+        manual = self.craft_home / 'fake2'
+        manual.mkdir(parents=True)
+        (manual / 'notes.txt').write_text('mine')
+        self.run_install('--only', 'fake1', '--yes', '--skip-mcp')
+        out = self.run_uninstall('--yes')
+        self.assertIn('kept', out)
+        self.assertEqual((manual / 'notes.txt').read_text(), 'mine')
+        self.assertFalse((self.craft_home / 'fake1').exists())
+
+    def test_uninstall_keeps_claude_code_server_edited_after_install(self):
+        self.run_install('--yes', '--claude-code')
+        db = self.claude_db()
+        db['fake1'] = db['fake1'] + ['--my-flag']
+        (self.root / 'mcp.json').write_text(json.dumps(db))
+        out = self.run_uninstall('--yes')
+        self.assertIn('left alone', out)
+        self.assertEqual(set(self.claude_db()), {'fake1'})
+
+    def test_failed_claude_remove_keeps_record_and_fails(self):
+        self.run_install('--yes', '--claude-code')
+        self.run_uninstall('--yes', expected=1, extra={'CLAUDE_REMOVE_FAIL': '1'})
+        self.assertEqual(set(self.claude_db()), {'fake1', 'fake2'})
+        self.run_uninstall('--yes')
+        self.assertEqual(self.claude_db(), {})
+
+    def test_identical_existing_desktop_entry_is_not_adopted(self):
+        self.run_install('--yes', '--skip-mcp')
+        entry = {'command': str(self.bin / 'fake1-cli'),
+                 'args': ['mcp', '--automation-write-root', str(self.workspace)]}
+        self.write_desktop_config({'mcpServers': {'fake1': entry}})
+        out = self.run_install('--yes', '--claude-desktop')
+        self.assertIn('not added by this installer', out)
+        self.run_uninstall('--yes')
+        self.assertEqual(self.desktop_doc()['mcpServers'], {'fake1': entry})
+
+    def test_rerun_does_not_overwrite_user_edits_to_our_entry(self):
+        self.run_install('--yes', '--claude-desktop')
+        doc = self.desktop_doc()
+        doc['mcpServers']['fake1']['env'] = {'MY': '1'}
+        self.desktop_config.write_text(json.dumps(doc))
+        out = self.run_install('--yes', '--claude-desktop', '--workspace', str(self.root / 'other ws'))
+        self.assertIn('edited since', out)
+        self.assertEqual(self.desktop_doc()['mcpServers']['fake1']['env'], {'MY': '1'})
+        self.assertEqual(self.desktop_doc()['mcpServers']['fake2']['args'][-1], str(self.root / 'other ws'))
+
     def test_uninstall_asks_and_declining_changes_nothing(self):
         self.run_install('--yes', '--skip-mcp')
         before = snapshot(self.root)
@@ -291,9 +337,13 @@ class LifecycleTests(Fixture):
         self.assertEqual(before, snapshot(self.root))
 
     # --- bootstrapper ------------------------------------------------------------
-    def make_tarball(self, tamper=None):
+    def make_tarball(self, tamper=None, extra=None):
         path = self.root / 'source.tar.gz'
         with tarfile.open(path, 'w:gz') as tar:
+            for rel, data in (extra or {}).items():
+                info = tarfile.TarInfo('craft-studio-setup-0.3.0/' + rel)
+                info.size = len(data)
+                tar.addfile(info, io.BytesIO(data))
             for rel in BOOT_FILES:
                 data = (REPO / rel).read_bytes()
                 if rel == tamper:
@@ -342,6 +392,15 @@ class LifecycleTests(Fixture):
                 self.assertIn('CHECKSUM MISMATCH for ' + rel, out)
                 self.assertFalse(self.bin.exists())
 
+    def test_bootstrap_never_runs_unlisted_files(self):
+        marker = self.root / 'planted-ran'
+        planted = f'open({str(marker)!r}, "w").write("x")\n'.encode()
+        tarball = self.make_tarball(extra={'scripts/json.py': planted, 'scripts/argparse.py': planted,
+                                           'catalog/json.py': planted})
+        self.run_bootstrap('all', '--yes', '--claude-desktop', tarball=tarball)
+        self.assertFalse(marker.exists())
+        self.assertTrue((self.bin / 'fake1-cli').exists())
+
     def test_bootstrap_tarball_sha_pin(self):
         tarball = self.make_tarball()
         out = self.run_bootstrap('all', '--dry-run', tarball=tarball, expected=1,
@@ -349,6 +408,47 @@ class LifecycleTests(Fixture):
         self.assertIn('CHECKSUM MISMATCH for the source tarball', out)
         good = hashlib.sha256(tarball.read_bytes()).hexdigest()
         self.run_bootstrap('all', '--dry-run', tarball=tarball, extra={'CRAFT_SETUP_TARBALL_SHA256': good})
+
+
+class ConfigHelperTests(unittest.TestCase):
+    def setUp(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('mcp_config', REPO / 'scripts/mcp_config.py')
+        self.mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.mod)
+        self.tmp = Path(__import__('tempfile').mkdtemp(prefix='craft-helper-'))
+        self.addCleanup(__import__('shutil').rmtree, self.tmp)
+
+    def test_atomic_write_refuses_concurrent_change(self):
+        target = self.tmp / 'config.json'
+        target.write_bytes(b'{"a": 1}')
+        with self.assertRaises(self.mod.Raced):
+            self.mod.atomic_write(target, b'{}', expect=b'{"a": 0}')
+        self.assertEqual(target.read_bytes(), b'{"a": 1}')
+        self.assertEqual([p.name for p in self.tmp.iterdir()], ['config.json'])
+
+    def test_backup_is_exclusive_and_private(self):
+        target = self.tmp / 'config.json'
+        first = self.mod.write_backup(target, b'one')
+        second = self.mod.write_backup(target, b'two')
+        self.assertNotEqual(first, second)
+        self.assertEqual((first.read_bytes(), second.read_bytes()), (b'one', b'two'))
+        self.assertEqual(first.stat().st_mode & 0o777, 0o600)
+
+    def test_cc_match(self):
+        entry = json.dumps({'command': '/b/x-cli', 'args': ['mcp', '--root', '/w s']})
+        good = 'x:\n  Scope: User config\n  Command: /b/x-cli\n  Args: mcp --root /w s\n'
+        for text, expected in ((good, 0), (good.replace('User', 'Project'), 1),
+                               (good.replace('/w s', '/w s --extra'), 1)):
+            with self.subTest(text=text):
+                import contextlib
+                with contextlib.redirect_stdout(io.StringIO()):
+                    sys_stdin = __import__('sys').stdin
+                    __import__('sys').stdin = io.StringIO(text)
+                    try:
+                        self.assertEqual(self.mod.main(['cc-match', '--entry', entry]), expected)
+                    finally:
+                        __import__('sys').stdin = sys_stdin
 
 
 class ChecksumTests(unittest.TestCase):

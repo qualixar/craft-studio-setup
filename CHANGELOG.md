@@ -45,7 +45,7 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   2.1), issue and pull request templates, CODEOWNERS and Dependabot for
   GitHub Actions.
 - Tests for aliases, dry run, Claude Desktop merge, bad JSON, idempotency,
-  uninstall and the bootstrapper's checksum check (50 tests in total).
+  uninstall and the bootstrapper's checksum check (59 tests in total).
 
 ### Changed
 
@@ -56,6 +56,15 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - README rewritten: three copy-paste commands, Claude Code and Claude Desktop
   steps, exact paths changed, uninstall, a compatibility table, known issues
   with fixes and troubleshooting.
+
+### Security
+
+- An independent read-only review (Codex) found twelve issues in the first
+  v0.3.0 draft; all were fixed before release. The bootstrapper runs only the
+  checked files from a clean folder, Python helpers run isolated (`-I`),
+  ownership is recorded and compared before anything is changed or removed,
+  backups are exclusive and no-follow, and a config edited by another program
+  during the run is detected instead of overwritten. Details in RELEASE-NOTES-v0.3.0.md.
 
 ### Removed
 

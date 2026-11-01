@@ -5,32 +5,38 @@ Subcommands
   servers   print {name: {command, args}} for the selected catalog apps
   merge     add our servers to a JSON config (Claude Desktop or a workspace .mcp.json)
   remove    remove only the servers this installer recorded in a JSON config
+  cc-match  does `claude mcp get` output (stdin) show exactly this entry at user scope?
   state     read or change the installer state file (what we installed)
 
 Rules for every config edit:
   * invalid JSON, a non-object top level or a non-object "mcpServers" is refused
     (exit 3) and the file is left untouched;
-  * a timestamped byte-for-byte backup is written before the first change;
+  * a byte-for-byte backup is created (exclusively, never through a symlink)
+    before the first change;
   * only "mcpServers" entries are touched; every other key is preserved;
-  * an existing server with the same name that we did not record is left alone;
+  * an entry is added only under a free name, and changed or removed only while
+    it still equals what this installer recorded writing;
   * the new file is written to a temporary file in the same directory, fsynced
-    and renamed over the old one, then read back and checked.
+    and renamed over the old one, but only if the file still holds the bytes
+    that were read; it is then read back and checked, and the ownership record
+    is saved. Any failure after the rename puts the previous bytes back.
 
-Exit codes: 0 nothing changed, 10 changed, 3 refused (bad input), 4 failed check.
+Exit codes: 0 nothing changed, 10 changed, 3 refused, 4 failed check, 5 changed underneath us.
 """
 import argparse
 import datetime as _dt
 import json
 import os
 from pathlib import Path
-import shutil
 import sys
 import tempfile
 
 CHANGED = 10
 REFUSED = 3
 CHECK_FAILED = 4
+RACE = 5
 STATE_VERSION = 1
+KINDS = ('configs', 'claude_code', 'desktop_apps', 'clis')
 
 
 def _fail(code, message):
@@ -43,7 +49,7 @@ def _fail(code, message):
 def load_state(path):
     path = Path(path)
     if not path.exists():
-        return {'version': STATE_VERSION, 'configs': {}, 'claude_code': {}, 'desktop_apps': {}}
+        return {'version': STATE_VERSION, **{k: {} for k in KINDS}}
     try:
         data = json.loads(path.read_text())
     except (OSError, ValueError) as error:
@@ -51,7 +57,7 @@ def load_state(path):
                        'move it aside and re-run')
     if not isinstance(data, dict):
         _fail(REFUSED, f'installer state file {path} is not a JSON object')
-    for key in ('configs', 'claude_code', 'desktop_apps'):
+    for key in KINDS:
         if not isinstance(data.get(key), dict):
             data[key] = {}
     data['version'] = STATE_VERSION
@@ -60,58 +66,86 @@ def load_state(path):
 
 def save_state(path, state):
     path = Path(path)
-    empty = not (state['configs'] or state['claude_code'] or state['desktop_apps'])
-    if empty:
+    if not any(state[k] for k in KINDS):
         if path.exists():
             path.unlink()
         return
     path.parent.mkdir(parents=True, exist_ok=True)
-    atomic_write(path, json.dumps(state, indent=2, sort_keys=True) + '\n', 0o600)
+    atomic_write(path, (json.dumps(state, indent=2, sort_keys=True) + '\n').encode(), 0o600)
 
 
 # --- file helpers --------------------------------------------------------------
 
-def atomic_write(path, text, mode=None):
+_ANY = object()
+
+
+class Raced(Exception):
+    pass
+
+
+class CheckFailed(Exception):
+    pass
+
+
+def _current_bytes(path):
+    try:
+        return path.read_bytes()
+    except FileNotFoundError:
+        return None
+
+
+def atomic_write(path, data, mode=None, expect=_ANY):
+    """Write bytes via a synced temporary file and rename.
+
+    With expect (bytes, or None for "must not exist"), refuse to replace a file
+    whose current content differs, so a concurrent edit is never overwritten.
+    """
     path = Path(path)
     if mode is None:
         mode = path.stat().st_mode & 0o777 if path.exists() else 0o600
     fd, tmp = tempfile.mkstemp(prefix='.' + path.name + '.', suffix='.tmp', dir=path.parent)
     try:
-        with os.fdopen(fd, 'w', encoding='utf-8') as handle:
-            handle.write(text)
+        with os.fdopen(fd, 'wb') as handle:
+            handle.write(data)
             handle.flush()
             os.fsync(handle.fileno())
         os.chmod(tmp, mode)
+        if expect is not _ANY and _current_bytes(path) != expect:
+            raise Raced(f'{path} was changed by another program while this installer was '
+                        'editing it. Nothing was written; run the command again.')
         os.replace(tmp, path)
     except BaseException:
-        with _suppress():
+        try:
             os.unlink(tmp)
+        except OSError:
+            pass
         raise
 
 
-class _suppress:
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc):
-        return exc[0] is not None and issubclass(exc[0], OSError)
-
-
-def backup_path(path):
+def write_backup(path, raw):
+    """Create <config>.craft-backup-<time> exclusively (no symlink following)."""
     stamp = _dt.datetime.now().strftime('%Y%m%d-%H%M%S')
-    candidate = path.with_name(f'{path.name}.craft-backup-{stamp}')
-    counter = 1
-    while candidate.exists():
-        candidate = path.with_name(f'{path.name}.craft-backup-{stamp}-{counter}')
-        counter += 1
-    return candidate
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, 'O_NOFOLLOW', 0)
+    for counter in range(1000):
+        suffix = f'-{counter}' if counter else ''
+        candidate = path.with_name(f'{path.name}.craft-backup-{stamp}{suffix}')
+        try:
+            fd = os.open(candidate, flags, 0o600)
+        except FileExistsError:
+            continue
+        with os.fdopen(fd, 'wb') as handle:
+            handle.write(raw)
+            handle.flush()
+            os.fsync(handle.fileno())
+        return candidate
+    _fail(REFUSED, f'could not create a backup next to {path}')
 
 
 def read_config(path):
     """Return (raw bytes or None, parsed document). Refuse anything unsafe to edit."""
-    if not path.exists():
+    raw = _current_bytes(path)
+    if raw is None:
         return None, {}
-    raw = path.read_bytes()
     if not raw.strip():
         return raw, {}  # an empty file holds nothing to lose; it is backed up anyway
     try:
@@ -121,41 +155,14 @@ def read_config(path):
                        'Fix the file (or restore one of its backups) and re-run.')
     if not isinstance(doc, dict):
         _fail(REFUSED, f'{path} must contain a JSON object at the top level. Nothing was changed.')
-    servers = doc.get('mcpServers', {})
-    if not isinstance(servers, dict):
+    if not isinstance(doc.get('mcpServers', {}), dict):
         _fail(REFUSED, f'"mcpServers" in {path} is not a JSON object. Nothing was changed.')
     return raw, doc
 
 
-class CheckFailed(Exception):
-    pass
-
-
-def write_checked(path, doc, before_doc, ours, rollback):
-    """Atomically write doc, read it back, and roll back if anything else moved.
-
-    rollback is the original bytes (restored on failure) or None (file removed).
-    """
-    text = json.dumps(doc, indent=2, ensure_ascii=False) + '\n'
-    atomic_write(path, text)
-    checked(path, doc, before_doc, ours, rollback)
-
-
-def checked(path, doc, before_doc, ours, rollback):
-    try:
-        verify(path, doc, before_doc, ours)
-    except CheckFailed as error:
-        if rollback is None:
-            with _suppress():
-                path.unlink()
-        else:
-            atomic_write(path, rollback.decode('utf-8', 'surrogateescape'))
-        _fail(CHECK_FAILED, f'{error}; the previous file was put back')
-
-
 def verify(path, doc, before_doc, ours):
     try:
-        raw = path.read_text(encoding='utf-8')
+        raw = path.read_bytes()
         reread = json.loads(raw) if raw.strip() else {}
     except (OSError, ValueError) as error:
         raise CheckFailed(f'{path} did not parse after writing ({error})') from error
@@ -169,6 +176,41 @@ def verify(path, doc, before_doc, ours):
     for name, value in old.items():
         if name not in ours and new.get(name) != value:
             raise CheckFailed(f'server {name!r} in {path} changed unexpectedly')
+
+
+def commit(path, data, doc, before_doc, ours, raw, state, state_path):
+    """Replace path with data (or delete it when data is None), check, then save state.
+
+    raw is what was read (None: the file did not exist). Every failure after the
+    replacement restores raw, so the config and the ownership record agree.
+    """
+    try:
+        if data is None:
+            if _current_bytes(path) != raw:
+                raise Raced(f'{path} was changed by another program; nothing was removed. '
+                            'Run the command again.')
+            path.unlink()
+        else:
+            atomic_write(path, data, expect=raw)
+    except Raced as error:
+        _fail(RACE, str(error))
+    try:
+        if data is not None:
+            verify(path, doc, before_doc, ours)
+        save_state(state_path, state)
+    except (CheckFailed, OSError, ValueError) as error:
+        if raw is None:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+        else:
+            atomic_write(path, raw)
+        _fail(CHECK_FAILED, f'{error}; the previous file was put back')
+
+
+def dumps(doc):
+    return (json.dumps(doc, indent=2, ensure_ascii=False) + '\n').encode('utf-8')
 
 
 # --- subcommands ---------------------------------------------------------------
@@ -198,12 +240,14 @@ def cmd_merge(args):
     for name, entry in sorted(servers.items()):
         have = current.get(name)
         if have == entry:
-            actions.append(('=', name, 'already set'))
-            owned[name] = entry
+            actions.append(('=', name, 'already set' if name in owned else
+                            'already present (not added by this installer, so uninstall keeps it)'))
         elif have is None:
             actions.append(('+', name, 'add'))
-        elif name in owned:
+        elif name in owned and have == owned[name]:
             actions.append(('~', name, 'update (entry written by this installer)'))
+        elif name in owned:
+            actions.append(('!', name, 'left alone: edited since this installer wrote it'))
         else:
             actions.append(('!', name, 'left alone: an entry with this name exists and was '
                                        'not written by this installer'))
@@ -216,9 +260,6 @@ def cmd_merge(args):
     for sign, name, note in actions:
         print(f'     {sign} {name}: {verb if sign in "+~" else ""}{note}')
     if not to_write:
-        if not args.dry_run and owned:
-            state['configs'][str(path)] = record
-            save_state(args.state, state)
         print(f'   {label}: nothing to change')
         return 0
     if args.dry_run:
@@ -226,24 +267,18 @@ def cmd_merge(args):
             print(f'   would back up to {path.name}.craft-backup-<timestamp> first')
         return CHANGED
     new_doc = dict(doc)
-    new_servers = dict(current)
-    for name in to_write:
-        new_servers[name] = servers[name]
-    new_doc['mcpServers'] = new_servers
+    new_doc['mcpServers'] = {**current, **{name: servers[name] for name in to_write}}
     if raw is None:
         path.parent.mkdir(parents=True, exist_ok=True)
         record['created'] = not record['backups']
     else:
-        backup = backup_path(path)
-        backup.write_bytes(raw)
-        shutil.copymode(path, backup)
+        backup = write_backup(path, raw)
         record['backups'].append(str(backup))
         print(f'   backup: {backup}')
     for name in to_write:
         owned[name] = servers[name]
-    write_checked(path, new_doc, doc, set(to_write), raw)
     state['configs'][str(path)] = record
-    save_state(args.state, state)
+    commit(path, dumps(new_doc), new_doc, doc, set(to_write), raw, state, args.state)
     print(f'   {label}: wrote {len(to_write)} change(s); JSON checked after writing')
     return CHANGED
 
@@ -259,7 +294,8 @@ def cmd_remove(args):
     names = set(record['servers'])
     if args.names:
         names &= {n for n in args.names.split(',') if n}
-    if not path.exists():
+    raw, doc = read_config(path)
+    if raw is None:
         print(f'   {label}: {path} no longer exists; forgetting its entries')
         if not args.dry_run:
             for name in names:
@@ -267,7 +303,6 @@ def cmd_remove(args):
             _store_record(state, path, record)
             save_state(args.state, state)
         return 0
-    raw, doc = read_config(path)
     current = doc.get('mcpServers', {})
     remove, keep, gone = [], [], []
     for name in sorted(names):
@@ -287,10 +322,10 @@ def cmd_remove(args):
         print(f'     = {name}: already absent')
     if args.dry_run:
         return CHANGED if remove else 0
-    for name in remove + gone:
+    for name in remove + gone + keep:
         record['servers'].pop(name, None)
+    _store_record(state, path, record)
     if not remove:
-        _store_record(state, path, record)
         save_state(args.state, state)
         return 0
     new_doc = dict(doc)
@@ -300,32 +335,27 @@ def cmd_remove(args):
         new_doc['mcpServers'] = new_servers
     else:
         new_doc.pop('mcpServers', None)
-    backup = backup_path(path)
-    backup.write_bytes(raw)
-    shutil.copymode(path, backup)
+    backup = write_backup(path, raw)
     print(f'   backup: {backup}')
     if record.get('created') and new_doc == {} and not record['servers']:
-        path.unlink()
+        commit(path, None, new_doc, doc, set(remove), raw, state, args.state)
         print(f'   {label}: removed {path} (this installer created it and it is now empty)')
     elif original is not None and new_doc == original[0] and not record['servers']:
-        shutil.copyfile(original[1], path)
-        checked(path, new_doc, doc, set(remove), raw)
+        commit(path, original[2], new_doc, doc, set(remove), raw, state, args.state)
         print(f'   {label}: restored byte-for-byte from {original[1]}')
     else:
-        write_checked(path, new_doc, doc, set(remove), raw)
+        commit(path, dumps(new_doc), new_doc, doc, set(remove), raw, state, args.state)
         print(f'   {label}: removed {len(remove)} entr{"y" if len(remove) == 1 else "ies"}; '
               'JSON checked after writing')
-    _store_record(state, path, record)
-    save_state(args.state, state)
     return CHANGED
 
 
 def _original(record):
-    """(parsed, path) of the first backup taken before this installer's first edit."""
+    """(parsed, path, bytes) of the first backup taken before this installer's first edit."""
     for backup in record.get('backups', [])[:1]:
         try:
             raw = Path(backup).read_bytes()
-            return (json.loads(raw) if raw.strip() else {}), backup
+            return (json.loads(raw) if raw.strip() else {}), backup, raw
         except (OSError, ValueError):
             return None
     return None
@@ -336,6 +366,19 @@ def _store_record(state, path, record):
         state['configs'][str(path)] = record
     else:
         state['configs'].pop(str(path), None)
+
+
+def cmd_cc_match(args):
+    """Exit 0 when `claude mcp get` output on stdin shows this exact user-scope entry."""
+    entry = json.loads(args.entry)
+    fields = {}
+    for line in sys.stdin.read().splitlines():
+        key, sep, value = line.strip().partition(':')
+        if sep and key in ('Scope', 'Command', 'Args'):
+            fields[key] = value.strip()
+    return 0 if (fields.get('Scope', '').startswith('User')
+                 and fields.get('Command') == entry['command']
+                 and fields.get('Args', '') == ' '.join(entry['args'])) else 1
 
 
 def cmd_state(args):
@@ -386,10 +429,14 @@ def main(argv=None):
             p.add_argument('--names', default='', help='comma-separated subset to remove')
         p.set_defaults(func=func)
 
+    p = sub.add_parser('cc-match')
+    p.add_argument('--entry', required=True)
+    p.set_defaults(func=cmd_cc_match)
+
     p = sub.add_parser('state')
     p.add_argument('action', choices=('get', 'keys', 'set', 'delete'))
     p.add_argument('--state', required=True)
-    p.add_argument('--kind', required=True, choices=('claude_code', 'desktop_apps', 'configs'))
+    p.add_argument('--kind', required=True, choices=KINDS)
     p.add_argument('--key', default='')
     p.add_argument('--value', default='null')
     p.set_defaults(func=cmd_state)

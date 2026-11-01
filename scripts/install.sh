@@ -106,7 +106,7 @@ STATE_FILE="$CRAFT_HOME/.craft-setup-state.json"
 
 # --- app selection -----------------------------------------------------------
 # NOTE: no `mapfile` here: macOS ships bash 3.2, which predates it.
-WANTED_LIST="$(python3 - "$APPS_JSON" "$GROUPS_JSON" "$GROUP" "$ONLY" <<'EOF'
+WANTED_LIST="$(python3 -I - "$APPS_JSON" "$GROUPS_JSON" "$GROUP" "$ONLY" <<'EOF'
 import json, sys
 apps = json.load(open(sys.argv[1]))["apps"]
 data = json.load(open(sys.argv[2]))
@@ -129,7 +129,7 @@ EOF
 [ -n "$WANTED_LIST" ] || { echo "no apps selected" >&2; exit 1; }
 
 field() { # field <app> <key>  (lists are printed one item per line)
-  python3 - "$APPS_JSON" "$1" "$2" <<'EOF'
+  python3 -I - "$APPS_JSON" "$1" "$2" <<'EOF'
 import json, sys
 apps = json.load(open(sys.argv[1]))["apps"]
 name, key = sys.argv[2], sys.argv[3]
@@ -150,7 +150,7 @@ installed_version() { # echoes version or empty
 }
 
 version_matches() {
-  python3 - "$1" "$2" <<'PY_VERSION'
+  python3 -I - "$1" "$2" <<'PY_VERSION'
 import re, sys
 sys.exit(0 if re.search(r"(?:^|\s)v?" + re.escape(sys.argv[2]) + r"(?:$|\s)", sys.argv[1]) else 1)
 PY_VERSION
@@ -178,7 +178,7 @@ if [ "$DETECT_ONLY" = 1 ]; then
 fi
 
 if [ "$VERIFY_MCP" = 1 ]; then
-  exec python3 "$SCRIPT_DIR/verify_mcp.py" --catalog "$APPS_JSON" --bin-dir "$BIN_DIR" --workspace "$WORKSPACE" --apps "$WANTED_LIST"
+  exec python3 -I "$SCRIPT_DIR/verify_mcp.py" --catalog "$APPS_JSON" --bin-dir "$BIN_DIR" --workspace "$WORKSPACE" --apps "$WANTED_LIST"
 fi
 
 # --- MCP targets -------------------------------------------------------------
@@ -238,7 +238,7 @@ ask() { # ask <prompt> ; returns 0 on yes
   case "$ans" in [Nn]*) return 1;; [Aa]*) YES=1; return 0;; *) return 0;; esac
 }
 
-state() { python3 "$MCP_CONFIG" state "$@" --state "$STATE_FILE"; }
+state() { python3 -I "$MCP_CONFIG" state "$@" --state "$STATE_FILE"; }
 state_set() { # state_set <kind> <key> <json>
   local rc=0
   state set --kind "$1" --key "$2" --value "$3" >/dev/null || rc=$?
@@ -293,6 +293,9 @@ install_one() {
   rm -rf "${CRAFT_HOME:?}/${app:?}"
   mv "$stage" "$CRAFT_HOME/$app" || return 1
   ln -sfn "$CRAFT_HOME/$app/$relative" "$BIN_DIR/$binary" || return 1
+  state_set clis "$app" "$(python3 -I -c 'import json,sys; print(json.dumps({"dir": sys.argv[1], "link": sys.argv[2], "target": sys.argv[3], "version": sys.argv[4]}))' \
+    "$CRAFT_HOME/$app" "$BIN_DIR/$binary" "$CRAFT_HOME/$app/$relative" "$version")" || {
+    echo "ERROR: $app installed, but the installer could not record it in $STATE_FILE" >&2; return 1; }
   CHANGED=$((CHANGED + 1))
   echo "   installed: $output"
 }
@@ -303,7 +306,7 @@ install_desktop() ( # subshell makes the mount cleanup local to this app
   if [ -z "$asset" ]; then echo "== $app: no desktop DMG in this release, skipping desktop"; exit 0; fi
   recorded="$(state get --kind desktop_apps --key "$app")"
   version="$(field "$app" version)"
-  if [ "$REINSTALL" = 0 ] && [ -n "$recorded" ] && python3 - "$recorded" "$version" <<'PY_DESKTOP'
+  if [ "$REINSTALL" = 0 ] && [ -n "$recorded" ] && python3 -I - "$recorded" "$version" <<'PY_DESKTOP'
 import json, os, sys
 r = json.loads(sys.argv[1])
 sys.exit(0 if r.get("version") == sys.argv[2] and os.path.isdir(r.get("path", "")) else 1)
@@ -357,7 +360,10 @@ PY_DESKTOP
     fi
     exit 1
   fi
-  state_set desktop_apps "$app" "$(python3 -c 'import json,sys; print(json.dumps({"path": sys.argv[1], "version": sys.argv[2]}))' "$DESKTOP_DIR/$name" "$version")"
+  if ! state_set desktop_apps "$app" "$(python3 -I -c 'import json,sys; print(json.dumps({"path": sys.argv[1], "version": sys.argv[2]}))' "$DESKTOP_DIR/$name" "$version")"; then
+    echo "ERROR: $DESKTOP_DIR/$name was installed, but could not be recorded in $STATE_FILE; uninstall will not remove it" >&2
+    exit 1
+  fi
   echo "   desktop installed: $DESKTOP_DIR/$name"
   exit 10
 )
@@ -403,11 +409,11 @@ if [ "$TARGET_CODE" = 1 ] || [ "$TARGET_DESKTOP" = 1 ]; then
     [ "$TARGET_DESKTOP" = 1 ] && targets="${targets:+$targets and }Claude Desktop"
     ask "Connect the installed apps to $targets (workspace $WORKSPACE)?" || { echo "== MCP connection skipped by user"; READY_LIST=""; }
   fi
-  SERVERS_JSON="$(python3 "$MCP_CONFIG" servers --catalog "$APPS_JSON" --bin-dir "$BIN_DIR" --workspace "$WORKSPACE" --apps "$READY_LIST")"
+  SERVERS_JSON="$(python3 -I "$MCP_CONFIG" servers --catalog "$APPS_JSON" --bin-dir "$BIN_DIR" --workspace "$WORKSPACE" --apps "$READY_LIST")"
   DRY_FLAG=(); [ "$DRY_RUN" = 1 ] && DRY_FLAG=(--dry-run)
   merge_config() { # merge_config <config path> <label>
     local rc=0
-    python3 "$MCP_CONFIG" merge --config "$1" --label "$2" --state "$STATE_FILE" --servers "$SERVERS_JSON" "${DRY_FLAG[@]+"${DRY_FLAG[@]}"}" || rc=$?
+    python3 -I "$MCP_CONFIG" merge --config "$1" --label "$2" --state "$STATE_FILE" --servers "$SERVERS_JSON" "${DRY_FLAG[@]+"${DRY_FLAG[@]}"}" || rc=$?
     case "$rc" in 0) ;; 10) CHANGED=$((CHANGED + 1));; *) echo "ERROR: could not update $1 (see the message above)" >&2; exit 1;; esac
   }
   if [ -n "$READY_LIST" ] && [ "$TARGET_CODE" = 1 ] && [ "$HAVE_CLAUDE" = 0 ]; then
@@ -420,7 +426,7 @@ if [ "$TARGET_CODE" = 1 ] || [ "$TARGET_DESKTOP" = 1 ]; then
       [ -z "$app" ] && continue
       binary="$(field "$app" binary)"; mcp_name="$(field "$app" mcp_name)"
       bin="$BIN_DIR/$binary"
-      entry="$(python3 -c 'import json,sys; print(json.dumps(json.loads(sys.argv[1])[sys.argv[2]], sort_keys=True))' "$SERVERS_JSON" "$mcp_name")"
+      entry="$(python3 -I -c 'import json,sys; print(json.dumps(json.loads(sys.argv[1])[sys.argv[2]], sort_keys=True))' "$SERVERS_JSON" "$mcp_name")"
       margs=()
       while IFS= read -r a; do
         [ -z "$a" ] && continue
@@ -429,15 +435,26 @@ if [ "$TARGET_CODE" = 1 ] || [ "$TARGET_DESKTOP" = 1 ]; then
       recorded="$(state get --kind claude_code --key "$mcp_name")"
       existing=""
       if existing="$(claude_cmd mcp get "$mcp_name" 2>/dev/null </dev/null)"; then
-        if [ "$recorded" = "$entry" ] && [ "$REINSTALL" = 0 ]; then
+        ours=0
+        if [ -n "$recorded" ]; then
+          # Ours only while it still matches what we recorded writing.
+          python3 -I "$MCP_CONFIG" cc-match --entry "$recorded" <<< "$existing" && ours=1
+        else
+          # Registered by v0.2.0 of this installer, which kept no record: same scope and binary.
+          case "$existing" in *"Scope: User"*"Command: $bin"$'\n'*) ours=1;; esac
+        fi
+        if [ "$ours" = 1 ] && [ "$recorded" = "$entry" ] && [ "$REINSTALL" = 0 ]; then
           echo "   $mcp_name: already registered, nothing changed"
           MCP_CHECK_LIST="${MCP_CHECK_LIST}${app}"$'\n'
           continue
-        elif [ -n "$recorded" ] || printf '%s' "$existing" | grep -Fq "$bin"; then
+        elif [ "$ours" = 1 ]; then
           say "replace the existing $mcp_name entry (written by this installer)"
-          [ "$DRY_RUN" = 1 ] || claude_cmd mcp remove --scope user "$mcp_name" </dev/null >/dev/null 2>&1 || true
+          if [ "$DRY_RUN" = 0 ] && ! claude_cmd mcp remove --scope user "$mcp_name" </dev/null >/dev/null 2>&1; then
+            echo "   $mcp_name: could not remove the old entry; left as it is" >&2
+            MCP_FAILED="$MCP_FAILED $mcp_name"; continue
+          fi
         else
-          echo "   $mcp_name: left alone: you already have a server with this name that this installer did not add" >&2
+          echo "   $mcp_name: left alone: a server with this name exists that this installer did not add (or you edited it)" >&2
           continue
         fi
       fi
@@ -447,7 +464,8 @@ if [ "$TARGET_CODE" = 1 ] || [ "$TARGET_DESKTOP" = 1 ]; then
       fi
       echo "   claude mcp add --scope user $mcp_name"
       claude_cmd mcp add --scope user "$mcp_name" -- "$bin" "${margs[@]}" </dev/null
-      state_set claude_code "$mcp_name" "$entry"
+      state_set claude_code "$mcp_name" "$entry" || {
+        echo "ERROR: $mcp_name was added to Claude Code but could not be recorded in $STATE_FILE" >&2; exit 1; }
       CHANGED=$((CHANGED + 1))
       MCP_CHECK_LIST="${MCP_CHECK_LIST}${app}"$'\n'
     done <<< "$READY_LIST"
@@ -490,14 +508,16 @@ if [ -n "$MCP_CHECK_LIST" ]; then
 fi
 if [ "$NO_VERIFY" = 0 ] && [ -n "$READY_LIST" ] && { [ "$TARGET_CODE" = 1 ] || [ "$TARGET_DESKTOP" = 1 ]; }; then
   echo "--- MCP handshake check (initialize + tools/list, nothing registered) ---"
-  VERIFY_OUT="$(python3 "$SCRIPT_DIR/verify_mcp.py" --catalog "$APPS_JSON" --bin-dir "$BIN_DIR" --workspace "$WORKSPACE" --apps "$READY_LIST")" || true
+  VERIFY_RC=0
+  VERIFY_OUT="$(python3 -I "$SCRIPT_DIR/verify_mcp.py" --catalog "$APPS_JSON" --bin-dir "$BIN_DIR" --workspace "$WORKSPACE" --apps "$READY_LIST" 2>&1)" || VERIFY_RC=$?
   echo "$VERIFY_OUT"
-  while IFS= read -r line; do
-    case "$line" in *'"status": "FAIL"'*)
-      name="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["app"])' "$line")"
-      case " $MCP_FAILED " in *" $name "*) ;; *) MCP_FAILED="$MCP_FAILED $name";; esac;;
-    esac
-  done <<< "$VERIFY_OUT"
+  # Every app needs its own PASS line; a crash or a missing line counts as a failure.
+  while IFS= read -r app; do
+    [ -z "$app" ] && continue
+    case "$VERIFY_OUT" in *"{\"app\": \"$app\", \"status\": \"PASS\""*) continue;; esac
+    case " $MCP_FAILED " in *" $app "*) ;; *) MCP_FAILED="$MCP_FAILED $app";; esac
+  done <<< "$READY_LIST"
+  if [ "$VERIFY_RC" != 0 ] && [ -z "$MCP_FAILED" ]; then MCP_FAILED=" (handshake checker exit $VERIFY_RC)"; fi
 fi
 if [ -n "$MCP_FAILED" ]; then
   echo "MCP NOT CONNECTED:$MCP_FAILED (installed, but the server did not start; re-run with --mcp-only, then report it)" >&2
